@@ -1,0 +1,24 @@
+[project]
+name = "sokoodds-python"
+version = "0.1.0"
+requires-python = ">=3.13,<3.15"
+
+[dependency-groups]
+dev = [
+  "aiosqlite",
+  "ruff",
+  "pyright",
+  "pytest",
+  "pytest-asyncio",
+  "pytest-cov",
+]
+
+[tool.uv.workspace]
+members = ["apps/api", "apps/worker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

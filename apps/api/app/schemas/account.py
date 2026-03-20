@@ -1,0 +1,48 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class AccountUserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    firstName: str
+    phone: str
+    mpesaPhone: str | None = None
+    mpesaVerified: bool
+
+
+class WalletResponse(BaseModel):
+    currency: str
+    availableBalanceKes: str
+    reservedBalanceKes: str
+
+
+class AccountSnapshotResponse(BaseModel):
+    user: AccountUserResponse
+    wallet: WalletResponse
+
+
+class AuthOnboardRequest(BaseModel):
+    firstName: str = Field(min_length=2, max_length=80)
+    phone: str = Field(min_length=10, max_length=16)
+
+
+class AuthOnboardResponse(BaseModel):
+    sessionToken: str
+    account: AccountSnapshotResponse
+
+
+class WalletVerifyRequest(BaseModel):
+    phone: str = Field(min_length=10, max_length=16)
+
+
+class WalletVerifyResponse(BaseModel):
+    status: str
+    account: AccountSnapshotResponse
+    verificationCreditKes: str
+
+
+class MeResponse(BaseModel):
+    account: AccountSnapshotResponse

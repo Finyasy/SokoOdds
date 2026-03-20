@@ -1,0 +1,16 @@
+.git
+.gitignore
+.next
+.pnpm-store
+.pyrightcache
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.pyc
+coverage
+dist
+node_modules
+target
+uv.lock
+pnpm-lock.yaml

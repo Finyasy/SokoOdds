@@ -1,0 +1,12 @@
+{
+  "name": "sokoodds",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "lint:web": "pnpm --filter web lint",
+    "typecheck:web": "pnpm --filter web typecheck",
+    "test:web": "pnpm --filter web test",
+    "build:web": "pnpm --filter web build",
+    "test:e2e:web": "pnpm --filter web test:e2e"
+  }
+}
