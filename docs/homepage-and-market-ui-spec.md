@@ -31,6 +31,7 @@ Already live in the checked-in app:
 - homepage now opens directly on a live `All markets` feed with no oversized marketing hero
 - header uses a compact search-plus-category-rail pattern so users can scan bets immediately
 - homepage header search and top nav now drive the same in-place board state instead of acting like static chrome
+- header copy now reflects the active discovery state so focused boards feel connected to the top surface instead of looking like a detached grid
 - board title, count, and market grid now transition softly during discovery changes instead of snapping abruptly
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
 - the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
@@ -222,6 +223,7 @@ Must include:
 - compact `All markets` heading
 - small discovery kicker, not a large hero paragraph
 - visible live-contract count
+- header microcopy that mirrors focused-board state such as `Viewing ending soon economy board`
 - header search that filters the visible board in place
 - top nav chips that switch the board category in place
 - dense category chips

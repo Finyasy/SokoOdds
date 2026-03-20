@@ -77,6 +77,7 @@ export function MarketDiscoveryShell({
           });
         }}
         activeMarketCategory={activeCategory}
+        activeMarketFocus={activeFocus}
         onSelectMarketCategory={(value) => {
           startBoardTransition(() => {
             setActiveCategory(value);

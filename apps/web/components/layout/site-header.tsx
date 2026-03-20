@@ -8,13 +8,16 @@ import { AccountAccessButton } from "@/components/onboarding/account-access-butt
 import {
   buildDiscoveryHref,
   discoveryNavItems,
-  type DiscoveryCategory
+  formatDiscoveryFocusLabel,
+  type DiscoveryCategory,
+  type DiscoveryFocus
 } from "@/lib/market-discovery";
 
 type SiteHeaderProps = {
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   activeMarketCategory?: DiscoveryCategory;
+  activeMarketFocus?: DiscoveryFocus;
   onSelectMarketCategory?: (value: DiscoveryCategory) => void;
 };
 
@@ -25,6 +28,7 @@ export function SiteHeader({
   searchValue,
   onSearchChange,
   activeMarketCategory,
+  activeMarketFocus = "all",
   onSelectMarketCategory
 }: SiteHeaderProps) {
   const router = useRouter();
@@ -34,6 +38,29 @@ export function SiteHeader({
 
   const currentSearchValue = searchValue ?? localSearchValue;
   const currentCategory = activeMarketCategory ?? localCategory;
+  const trimmedSearchValue = currentSearchValue.trim();
+
+  function formatHeaderContext() {
+    if (trimmedSearchValue) {
+      const scopeLabel = currentCategory === "All" ? "the board" : `${currentCategory.toLowerCase()} board`;
+      return `Searching “${trimmedSearchValue}” in ${scopeLabel}`;
+    }
+
+    if (activeMarketFocus !== "all") {
+      const focusLabel = formatDiscoveryFocusLabel(activeMarketFocus).toLowerCase();
+      if (currentCategory === "All") {
+        return `Viewing ${focusLabel} markets`;
+      }
+
+      return `Viewing ${focusLabel} ${currentCategory.toLowerCase()} board`;
+    }
+
+    if (currentCategory !== "All") {
+      return `Viewing ${currentCategory.toLowerCase()} board`;
+    }
+
+    return "Kenya-first event markets";
+  }
 
   function updateSearch(value: string) {
     if (onSearchChange) {
@@ -75,7 +102,7 @@ export function SiteHeader({
           <span className="brand-mark__badge">SO</span>
           <span>
             <strong>SokoOdds</strong>
-            <small>Kenya-first event markets</small>
+            <small>{formatHeaderContext()}</small>
           </span>
         </Link>
 

@@ -70,6 +70,7 @@ test("signal strip controls open focused discovery boards and keep active state 
 
   await expect(page.getByTestId("market-board-focus")).toContainText("Ending soon economy");
   await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(page.getByText("Viewing ending soon economy board")).toBeVisible();
   await expect(activeShortcut).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByLabel("Market signals").getByRole("button", { name: "Ending soon", exact: true })
