@@ -35,6 +35,23 @@ test("markets page stays feed-first and shows the expanded launch catalogue", as
   ).toBeVisible();
 });
 
+test("market board filters in place by category", async ({ page }) => {
+  await page.goto("/markets");
+
+  await page.getByRole("button", { name: "Economy" }).click();
+
+  await expect(
+    page.getByRole("link", {
+      name: /CBK cut rate before Sept 30\?/i
+    }).first()
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: /Gor Mahia above AFC Leopards\?/i
+    })
+  ).toHaveCount(0);
+});
+
 test("market detail opens with the first-time WhatsApp prompt", async ({ page }) => {
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 

@@ -32,6 +32,8 @@ Already live in the checked-in app:
 - header uses a compact search-plus-category-rail pattern so users can scan bets immediately
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
 - the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
+- category chips now filter the board in place instead of forcing a route change
+- a slim `Ending soon` rail adds urgency without reintroducing clutter
 - first market-detail visit shows a dismissible WhatsApp prompt
 - the trading CTA opens a lightweight account setup sheet
 - account creation is backed by the API through a same-origin Next.js route
@@ -213,8 +215,10 @@ Must include:
 - small discovery kicker, not a large hero paragraph
 - visible live-contract count
 - dense category chips
+- in-place category filtering
 - four-column desktop feed when space allows
 - a small `Show more markets` CTA below the grid
+- a very slim urgency rail for closing contracts when relevant
 
 Avoid:
 
