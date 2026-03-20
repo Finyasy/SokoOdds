@@ -456,6 +456,110 @@ button:disabled {
   gap: 20px;
 }
 
+.signal-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(17, 19, 21, 0.07);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.78), transparent 38%),
+    linear-gradient(180deg, rgba(255, 253, 248, 0.92), rgba(248, 244, 236, 0.92));
+  box-shadow:
+    0 18px 44px rgba(70, 54, 33, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.signal-strip__cluster {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(17, 19, 21, 0.05);
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.signal-strip__cluster--quiet {
+  background: rgba(17, 19, 21, 0.03);
+}
+
+.signal-strip__cluster-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.signal-strip__label {
+  color: rgba(17, 19, 21, 0.6);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.signal-strip__caption {
+  color: rgba(17, 19, 21, 0.52);
+  font-size: 0.82rem;
+}
+
+.signal-strip__items {
+  display: grid;
+  gap: 8px;
+}
+
+.signal-strip__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(17, 19, 21, 0.06);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.signal-strip__item:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.signal-strip__copy {
+  display: grid;
+  gap: 4px;
+}
+
+.signal-strip__copy strong {
+  font-size: 0.94rem;
+  line-height: 1.35;
+}
+
+.signal-strip__copy span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.signal-strip__metric {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(31, 122, 77, 0.12);
+  color: var(--success);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.signal-strip__metric--soft {
+  background: rgba(201, 162, 39, 0.12);
+  color: #966a04;
+}
+
 .market-rail {
   display: grid;
   gap: 10px;
@@ -1601,8 +1705,15 @@ button:disabled {
     gap: 10px;
   }
 
+  .signal-strip,
+  .signal-strip__cluster-head,
   .market-rail__items {
     display: grid;
+  }
+
+  .signal-strip__item {
+    grid-template-columns: 1fr;
+    align-items: start;
   }
 
   .hero-panel,

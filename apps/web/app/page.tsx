@@ -1,6 +1,7 @@
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { MarketBoard } from "@/components/market/market-board";
+import { MarketSignalStrip } from "@/components/market/market-signal-strip";
 import { getMarkets } from "@/lib/market-api";
 
 export default async function HomePage() {
@@ -8,9 +9,10 @@ export default async function HomePage() {
   const discoveryMarkets = markets.slice(0, 8);
 
   return (
-    <>
+      <>
       <SiteHeader />
       <main className="site-shell page-stack">
+        <MarketSignalStrip markets={markets} />
         <MarketBoard
           title="All markets"
           kicker="Live discovery"

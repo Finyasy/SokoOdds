@@ -16,6 +16,8 @@ test.beforeEach(async ({ page }) => {
 test("homepage opens directly on the discovery markets surface", async ({ page }) => {
   await page.goto("/");
 
+  await expect(page.getByLabel("Market signals").getByText("Trending now")).toBeVisible();
+  await expect(page.getByLabel("Market signals").getByText("Ending soon")).toBeVisible();
   await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {

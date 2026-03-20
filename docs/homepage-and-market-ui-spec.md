@@ -32,6 +32,7 @@ Already live in the checked-in app:
 - header uses a compact search-plus-category-rail pattern so users can scan bets immediately
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
 - the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
+- a thin market-signals strip now surfaces `Trending now` and `Ending soon` above the grid without turning the page back into a hero
 - category chips now filter the board in place instead of forcing a route change
 - a slim `Ending soon` rail adds urgency without reintroducing clutter
 - first market-detail visit shows a dismissible WhatsApp prompt
@@ -211,6 +212,7 @@ The homepage should behave more like a market board than a brochure.
 
 Must include:
 
+- a thin `Trending now / Ending soon` signal strip above the grid
 - compact `All markets` heading
 - small discovery kicker, not a large hero paragraph
 - visible live-contract count
