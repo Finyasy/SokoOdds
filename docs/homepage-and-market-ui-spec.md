@@ -28,6 +28,9 @@ As of March 20, 2026, the repo has moved beyond a static scaffold on the highest
 Already live in the checked-in app:
 
 - homepage, markets page, and market detail page load with API-backed market data
+- homepage now opens directly on a live `All markets` feed with no oversized marketing hero
+- header uses a compact search-plus-category-rail pattern so users can scan bets immediately
+- market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
 - first market-detail visit shows a dismissible WhatsApp prompt
 - the trading CTA opens a lightweight account setup sheet
 - account creation is backed by the API through a same-origin Next.js route
@@ -45,11 +48,12 @@ Still intentionally not live in this pass:
 
 ### Copy Now
 
-- Polymarket-style discovery hierarchy: trending, active, ending soon
+- Polymarket-style scan-first market feed and category rail
 - Stripe-style information hierarchy and form clarity
 - Kalshi and Bayse-style trust posture and contract seriousness
 - 5050-style KES payout framing and M-Pesa visibility
 - Predicta-style explicit balance states and user guidance
+- Claude-style calm ivory card finish, rounded modular panels, and low-noise spacing
 
 ### Localize for Kenya and East Africa
 
@@ -197,26 +201,28 @@ Behavior:
 - sticky on desktop and mobile
 - collapses into compact layout on narrow screens
 
-#### 2. Discovery-Led Top Strip
+#### 2. Discovery-First Feed
 
-Keep the top section compact.
+The homepage should behave more like a market board than a brochure.
 
 Must include:
 
-- short Kenya-first framing
-- one compact headline
-- one supporting line
-- primary market CTA
-- optional secondary CTA
-- immediate transition into the market grid below
+- compact `All markets` heading
+- small discovery kicker, not a large hero paragraph
+- visible live-contract count
+- dense category chips
+- four-column desktop feed when space allows
+- a small `Show more markets` CTA below the grid
 
-#### 3. Discovery Bands
+Avoid:
 
-Three homepage sections:
+- oversized brand storytelling above the first card row
+- long trust strips before the user sees bets
+- gradient-heavy hero blocks that push the cards below the fold
 
-- Trending now
-- Ending soon
-- Built for Kenya and East Africa
+#### 3. Card Design Language
+
+Cards should combine Polymarket-style scanability with calmer Claude-style presentation.
 
 Each card should show:
 
@@ -227,21 +233,32 @@ Each card should show:
 - KES volume
 - market status badge
 
-#### 4. Trust Strip
+Card feel:
 
-Three short cards:
+- soft ivory surface
+- large rounded corners
+- thin double-border feeling
+- gentle category-tinted wash, not loud gradients
+- strong title, minimal supporting copy
+- rectangular YES/NO action blocks that are readable at a glance
 
-- Resolution Sources
-- Protected Wallet
-- M-Pesa Native
+The first row should feel scannable in under five seconds.
 
-Recommended copy:
+#### 4. Trust Surfaces
 
-- card 1: `Every market resolves on a named, public source. You can verify the outcome yourself.`
-- card 2: `Your funds move into reserved balance only when you place an order. You always see what is available and what is locked.`
-- card 3: `Deposit and withdraw with M-Pesa. You do not need a bank-first setup to get started.`
+Trust should move closer to the action, not live as a large homepage explainer.
 
-This section should appear before long explanatory content.
+Use:
+
+- small trust note in the market detail header
+- visible resolution-source reminder before trading
+- wallet state surfaces inside the order ticket
+- first-visit WhatsApp notice for settlement and pause alerts
+
+Avoid:
+
+- putting the trust story in a bulky homepage block before the cards
+- separating wallet readiness from the trade ticket
 
 #### 5. How It Works
 

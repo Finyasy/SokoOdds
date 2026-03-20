@@ -16,10 +16,10 @@ test.beforeEach(async ({ page }) => {
 test("homepage opens directly on the discovery markets surface", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Open markets, visible at a glance." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {
-      name: /Will Nairobi county sign the urban mobility bill before June 30, 2026\?/i
+      name: /Nairobi mobility bill before June 30\?/i
     }).first()
   ).toBeVisible();
 });

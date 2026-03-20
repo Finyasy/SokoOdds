@@ -27,67 +27,79 @@ export default async function MarketDetailPage({
     <>
       <SiteHeader />
       <main className="site-shell page-stack">
-        <nav className="breadcrumb">
-          <Link href="/markets">Markets</Link>
-          <span>/</span>
-          <span>{market.category}</span>
-        </nav>
-
-        <section className="market-intel-strip">
-          <div>
-            <span className="market-intel-strip__eyebrow">Stay ahead of settlement</span>
-            <strong>Join the WhatsApp alert lane for this market’s pauses, rule notices, and final resolution update.</strong>
-          </div>
-          <Link
-            href="https://wa.me/254700505050?text=Hi%20SokoOdds%2C%20send%20me%20market%20alerts%20on%20WhatsApp."
-            target="_blank"
-            rel="noreferrer"
-            className="ghost-button ghost-button--whatsapp"
-          >
-            Join WhatsApp alerts
-          </Link>
-        </section>
-
-        <section className="market-hero">
-          <div className="market-hero__content">
-            <div className="market-hero__meta">
-              <span className="market-chip">{market.category}</span>
-              <span
-                className={`status-pill status-pill--${market.status.toLowerCase().replace(" ", "-")}`}
-              >
-                {market.status}
-              </span>
-            </div>
-            <h1>{market.question}</h1>
-            <p>{market.summary}</p>
-
-            <div className="market-hero__probabilities">
-              <ProbabilityPill label="YES" value={market.yesPrice} />
-              <ProbabilityPill label="NO" value={market.noPrice} tone="no" />
-            </div>
-
-            <div className="market-hero__stats">
-              <div>
-                <span>Volume</span>
-                <strong>{formatKes(market.volumeKes)}</strong>
-              </div>
-              <div>
-                <span>Liquidity</span>
-                <strong>{formatKes(market.liquidityKes)}</strong>
-              </div>
-              <div>
-                <span>Closes</span>
-                <strong>{formatClosingLabel(market.closesAt)}</strong>
-              </div>
-              <div>
-                <span>Resolution source</span>
-                <strong>{market.resolutionSource}</strong>
-              </div>
-            </div>
+        <section className="market-stage">
+          <div className="market-stage__header">
+            <nav className="breadcrumb">
+              <Link href="/markets">Markets</Link>
+              <span>/</span>
+              <span>{market.category}</span>
+            </nav>
+            <span className="market-stage__header-note">Resolution source visible before trade</span>
           </div>
 
-          <div className="market-hero__aside">
-            <OrderTicket market={market} />
+          <div className="market-stage__body">
+            <div className="market-stage__main">
+              <section className="market-intel-strip">
+                <div>
+                  <span className="market-intel-strip__eyebrow">Stay ahead of settlement</span>
+                  <strong>
+                    Join the WhatsApp alert lane for this market’s pauses, rule notices, and final
+                    resolution update.
+                  </strong>
+                </div>
+                <Link
+                  href="https://wa.me/254700505050?text=Hi%20SokoOdds%2C%20send%20me%20market%20alerts%20on%20WhatsApp."
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ghost-button ghost-button--whatsapp"
+                >
+                  Join WhatsApp alerts
+                </Link>
+              </section>
+
+              <section className="market-hero">
+                <div className="market-hero__content">
+                  <div className="market-hero__meta">
+                    <span className="market-chip">{market.category}</span>
+                    <span
+                      className={`status-pill status-pill--${market.status.toLowerCase().replace(" ", "-")}`}
+                    >
+                      {market.status}
+                    </span>
+                  </div>
+                  <h1>{market.question}</h1>
+                  <p>{market.summary}</p>
+
+                  <div className="market-hero__probabilities">
+                    <ProbabilityPill label="YES" value={market.yesPrice} />
+                    <ProbabilityPill label="NO" value={market.noPrice} tone="no" />
+                  </div>
+
+                  <div className="market-hero__stats">
+                    <div>
+                      <span>Volume</span>
+                      <strong>{formatKes(market.volumeKes)}</strong>
+                    </div>
+                    <div>
+                      <span>Liquidity</span>
+                      <strong>{formatKes(market.liquidityKes)}</strong>
+                    </div>
+                    <div>
+                      <span>Closes</span>
+                      <strong>{formatClosingLabel(market.closesAt)}</strong>
+                    </div>
+                    <div>
+                      <span>Resolution source</span>
+                      <strong>{market.resolutionSource}</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div className="market-stage__ticket">
+              <OrderTicket market={market} />
+            </div>
           </div>
         </section>
 

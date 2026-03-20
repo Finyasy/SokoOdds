@@ -376,6 +376,14 @@ function WhatsAppPrompt() {
     <div className="overlay-shell" role="presentation">
       <div className="overlay-backdrop" onClick={dismissWhatsAppPrompt} />
       <section className="dialog-card dialog-card--compact" role="dialog" aria-modal="true">
+        <div className="dialog-windowbar">
+          <div className="dialog-windowbar__dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <span>Market alerts</span>
+        </div>
         <div className="dialog-pill">Fresh market alerts</div>
         <h2>Follow SokoOdds on WhatsApp before this market moves.</h2>
         <p>
@@ -447,6 +455,14 @@ function AccountSheet() {
     <div className="overlay-shell" role="presentation">
       <div className="overlay-backdrop" onClick={closeAccountSheet} />
       <section className="dialog-card dialog-card--wallet" role="dialog" aria-modal="true">
+        <div className="dialog-windowbar">
+          <div className="dialog-windowbar__dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+          <span>{accountSheetView === "account" ? "Wallet setup" : "M-Pesa verification"}</span>
+        </div>
         {accountSheetView === "account" ? (
           <>
             <div className="dialog-pill">Start in under 30 seconds</div>

@@ -75,6 +75,8 @@ Current shipped behavior:
 
 - public market list and detail APIs are live
 - homepage, markets page, and market detail page are API-backed
+- homepage now leads with a discovery-first `All markets` feed instead of a large hero
+- shared card surfaces use a calmer ivory modular style with soft borders and glanceable YES/NO actions
 - market detail uses a first-visit WhatsApp prompt with dismissal persistence
 - the order ticket can open a lightweight account setup flow
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state
@@ -312,6 +314,8 @@ Scope:
 - market detail page
 - admin market management placeholder
 - benchmark-led hierarchy inspired by Polymarket and Stripe
+- discovery-first landing page with the market feed above long-form marketing copy
+- calmer modular card system inspired by premium ivory UI references, localized for market scanning
 - first-visit community prompt for market-detail pages
 - browser-review loop using Playwright screenshots or checks before sign-off
 - move the highest-value read path from mock data to API-backed market pages as soon as list and detail APIs are stable
@@ -321,6 +325,8 @@ Acceptance criteria:
 - pages render mock or API-backed data
 - market rules and resolution source are visible on detail pages
 - homepage uses documented benchmark choices for discovery, hierarchy, and trust framing
+- homepage first viewport shows live markets immediately with no oversized hero blocking the feed
+- card design stays minimal, dense, and readable on desktop and mobile
 - first market-detail visit can promote WhatsApp or equivalent alerts without repeating on every refresh
 - a browser-level check exists for homepage and market-detail rendering
 - current repo slice: pages are already API-backed and browser-checked with Playwright

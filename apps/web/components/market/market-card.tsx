@@ -9,17 +9,38 @@ type MarketCardProps = {
 };
 
 export function MarketCard({ market, variant = "default" }: MarketCardProps) {
+  const title = variant === "glance" ? market.shortLabel : market.question;
+  const tone = market.category.toLowerCase();
+  const categoryMonogram = {
+    Politics: "PO",
+    Football: "FK",
+    Economy: "EC",
+    Weather: "WE",
+    Culture: "CU"
+  }[market.category];
+
   return (
-    <Link href={`/markets/${market.slug}`} className={`market-card market-card--${variant}`}>
-      <div className="market-card__eyebrow">
-        <span className="market-chip">{market.category}</span>
+    <Link
+      href={`/markets/${market.slug}`}
+      className={`market-card market-card--${variant} market-card--tone-${tone}`}
+    >
+      <div className="market-card__hero">
+        <div className="market-card__identity">
+          <span className="market-card__avatar" aria-hidden="true">
+            {categoryMonogram}
+          </span>
+          <div className="market-card__eyebrow">
+            <span className="market-chip">{market.category}</span>
+            <span className="market-card__region">{market.region}</span>
+          </div>
+        </div>
         <span className={`status-pill status-pill--${market.status.toLowerCase().replace(" ", "-")}`}>
           {market.status}
         </span>
       </div>
 
       <div className="market-card__body">
-        <h3>{market.question}</h3>
+        <h3>{title}</h3>
         <p>{market.summary}</p>
       </div>
 

@@ -103,6 +103,21 @@ export function OrderTicket({ market }: OrderTicketProps) {
         <ProbabilityPill label="NO" value={market.noPrice} tone="no" />
       </div>
 
+      <div className="ticket-balance-strip">
+        <div>
+          <span>Available balance</span>
+          <strong data-testid="order-ticket-available-balance">
+            {formatKes(state.walletBalanceKes)}
+          </strong>
+        </div>
+        <div>
+          <span>Reserved funds</span>
+          <strong data-testid="order-ticket-reserved-balance">
+            {formatKes(state.reservedBalanceKes)}
+          </strong>
+        </div>
+      </div>
+
       <div className="order-ticket__form">
         <label>
           Price per share
@@ -138,7 +153,7 @@ export function OrderTicket({ market }: OrderTicketProps) {
         </div>
       ) : null}
 
-      <div className="stat-list">
+      <div className="ticket-summary-grid">
         <div>
           <span>Estimated stake</span>
           <strong>{formatKes(estimatedStake)}</strong>
@@ -146,18 +161,6 @@ export function OrderTicket({ market }: OrderTicketProps) {
         <div>
           <span>Payout if correct</span>
           <strong>{formatKes(quantity)}</strong>
-        </div>
-        <div>
-          <span>Available balance</span>
-          <strong data-testid="order-ticket-available-balance">
-            {formatKes(state.walletBalanceKes)}
-          </strong>
-        </div>
-        <div>
-          <span>Reserved funds</span>
-          <strong data-testid="order-ticket-reserved-balance">
-            {formatKes(state.reservedBalanceKes)}
-          </strong>
         </div>
       </div>
 
