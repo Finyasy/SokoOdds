@@ -52,11 +52,7 @@ export function MarketDiscoveryShell({
     [deferredCategory, deferredFocus, deferredSearchQuery, markets]
   );
 
-  const showSignals =
-    showSignalStrip &&
-    deferredCategory === "All" &&
-    deferredFocus === "all" &&
-    deferredSearchQuery.trim() === "";
+  const showSignals = showSignalStrip && deferredSearchQuery.trim() === "";
   const boardTitle =
     deferredFocus === "all"
       ? title
@@ -89,7 +85,19 @@ export function MarketDiscoveryShell({
       />
 
       <main className="site-shell page-stack">
-        {showSignals ? <MarketSignalStrip markets={markets} /> : null}
+        {showSignals ? (
+          <MarketSignalStrip
+            markets={markets}
+            activeCategory={deferredCategory}
+            activeFocus={deferredFocus}
+            onSelectSignalBoard={(focus, category) => {
+              startBoardTransition(() => {
+                setActiveFocus(focus);
+                setActiveCategory(category);
+              });
+            }}
+          />
+        ) : null}
 
         <MarketBoard
           title={boardTitle}

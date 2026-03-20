@@ -35,7 +35,8 @@ Already live in the checked-in app:
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
 - the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
 - a thin market-signals strip now surfaces `Trending now` and `Ending soon` above the grid without turning the page back into a hero
-- signal-strip labels and micro-links now open focused boards such as `Trending politics` and `Ending soon economy`
+- signal-strip labels and micro-links now focus the homepage board in place instead of kicking users out of discovery
+- active signal-strip shortcuts now stay visible so focused boards such as `Trending politics` and `Ending soon economy` still feel anchored to the landing page
 - category chips now filter the board in place instead of forcing a route change
 - a slim `Ending soon` rail adds urgency without reintroducing clutter
 - first market-detail visit shows a dismissible WhatsApp prompt
@@ -216,7 +217,8 @@ The homepage should behave more like a market board than a brochure.
 Must include:
 
 - a thin `Trending now / Ending soon` signal strip above the grid
-- signal strip labels and micro-links that route into focused boards without adding a second heavy nav
+- signal strip labels and micro-links that focus the board in place without adding a second heavy nav
+- subtle active treatment on the currently selected signal board so users understand why the grid changed
 - compact `All markets` heading
 - small discovery kicker, not a large hero paragraph
 - visible live-contract count

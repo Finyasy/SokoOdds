@@ -2,15 +2,14 @@
 
 import Link from "next/link";
 import type { Market } from "@/lib/mock-data";
-import {
-  buildDiscoveryHref,
-  type DiscoveryCategory,
-  type DiscoveryFocus
-} from "@/lib/market-discovery";
+import { type DiscoveryCategory, type DiscoveryFocus } from "@/lib/market-discovery";
 import { formatClosingLabel, formatKes, formatPercent } from "@/lib/mock-data";
 
 type MarketSignalStripProps = {
   markets: Market[];
+  activeCategory: DiscoveryCategory;
+  activeFocus: DiscoveryFocus;
+  onSelectSignalBoard: (focus: DiscoveryFocus, category: DiscoveryCategory) => void;
 };
 
 function byVolumeDesc(a: Market, b: Market) {
@@ -30,7 +29,21 @@ function formatSignalBoardLabel(focus: DiscoveryFocus, category: DiscoveryCatego
   return focus === "trending" ? `Trending ${categoryLabel}` : `Ending soon ${categoryLabel}`;
 }
 
-export function MarketSignalStrip({ markets }: MarketSignalStripProps) {
+function isActiveSignalBoard(
+  activeFocus: DiscoveryFocus,
+  activeCategory: DiscoveryCategory,
+  focus: DiscoveryFocus,
+  category: DiscoveryCategory
+) {
+  return activeFocus === focus && activeCategory === category;
+}
+
+export function MarketSignalStrip({
+  markets,
+  activeCategory,
+  activeFocus,
+  onSelectSignalBoard
+}: MarketSignalStripProps) {
   const trendingMarkets = [...markets].sort(byVolumeDesc).slice(0, 3);
   const endingSoonMarkets = [...markets]
     .filter((market) => market.status === "Closing Soon")
@@ -44,23 +57,35 @@ export function MarketSignalStrip({ markets }: MarketSignalStripProps) {
       <div className="signal-strip__cluster">
         <div className="signal-strip__cluster-head">
           <div className="signal-strip__copy-block">
-            <Link
-              href={buildDiscoveryHref("/markets", "All", "", "trending")}
-              className="signal-strip__label-link"
+            <button
+              type="button"
+              className={`signal-strip__label-link${
+                isActiveSignalBoard(activeFocus, activeCategory, "trending", "All")
+                  ? " signal-strip__label-link--active"
+                  : ""
+              }`}
+              aria-pressed={isActiveSignalBoard(activeFocus, activeCategory, "trending", "All")}
+              onClick={() => onSelectSignalBoard("trending", "All")}
             >
               <span className="signal-strip__label">Trending now</span>
-            </Link>
+            </button>
             <span className="signal-strip__caption">Highest volume on the board</span>
           </div>
           <div className="signal-strip__focuses" aria-label="Trending focus boards">
             {trendingCategories.map((category) => (
-              <Link
+              <button
                 key={category}
-                href={buildDiscoveryHref("/markets", category, "", "trending")}
-                className="signal-strip__focus-link"
+                type="button"
+                className={`signal-strip__focus-link${
+                  isActiveSignalBoard(activeFocus, activeCategory, "trending", category)
+                    ? " signal-strip__focus-link--active"
+                    : ""
+                }`}
+                aria-pressed={isActiveSignalBoard(activeFocus, activeCategory, "trending", category)}
+                onClick={() => onSelectSignalBoard("trending", category)}
               >
                 {formatSignalBoardLabel("trending", category)}
-              </Link>
+              </button>
             ))}
           </div>
         </div>
@@ -83,23 +108,40 @@ export function MarketSignalStrip({ markets }: MarketSignalStripProps) {
       <div className="signal-strip__cluster signal-strip__cluster--quiet">
         <div className="signal-strip__cluster-head">
           <div className="signal-strip__copy-block">
-            <Link
-              href={buildDiscoveryHref("/markets", "All", "", "ending-soon")}
-              className="signal-strip__label-link"
+            <button
+              type="button"
+              className={`signal-strip__label-link${
+                isActiveSignalBoard(activeFocus, activeCategory, "ending-soon", "All")
+                  ? " signal-strip__label-link--active"
+                  : ""
+              }`}
+              aria-pressed={isActiveSignalBoard(activeFocus, activeCategory, "ending-soon", "All")}
+              onClick={() => onSelectSignalBoard("ending-soon", "All")}
             >
               <span className="signal-strip__label">Ending soon</span>
-            </Link>
+            </button>
             <span className="signal-strip__caption">Markets that need a faster decision</span>
           </div>
           <div className="signal-strip__focuses" aria-label="Ending soon focus boards">
             {endingSoonCategories.map((category) => (
-              <Link
+              <button
                 key={category}
-                href={buildDiscoveryHref("/markets", category, "", "ending-soon")}
-                className="signal-strip__focus-link"
+                type="button"
+                className={`signal-strip__focus-link${
+                  isActiveSignalBoard(activeFocus, activeCategory, "ending-soon", category)
+                    ? " signal-strip__focus-link--active"
+                    : ""
+                }`}
+                aria-pressed={isActiveSignalBoard(
+                  activeFocus,
+                  activeCategory,
+                  "ending-soon",
+                  category
+                )}
+                onClick={() => onSelectSignalBoard("ending-soon", category)}
               >
                 {formatSignalBoardLabel("ending-soon", category)}
-              </Link>
+              </button>
             ))}
           </div>
         </div>
