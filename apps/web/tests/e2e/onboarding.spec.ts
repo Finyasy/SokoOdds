@@ -26,6 +26,33 @@ test("homepage opens directly on the discovery markets surface", async ({ page }
   ).toBeVisible();
 });
 
+test("homepage header search and nav filter the board in place", async ({ page }) => {
+  await page.goto("/");
+  const boardGrid = page.getByTestId("market-board-grid");
+
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Economy" }).click();
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /CBK cut rate before Sept 30\?/i
+    }).first()
+  ).toBeVisible();
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /Gor Mahia above AFC Leopards\?/i
+    })
+  ).toHaveCount(0);
+
+  await page.getByPlaceholder("Search markets...").fill("mobility");
+  await expect(page.getByTestId("market-board-empty")).toBeVisible();
+  await page.getByRole("button", { name: "Clear market search" }).click();
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Trending" }).click();
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /Nairobi mobility bill before June 30\?/i
+    }).first()
+  ).toBeVisible();
+});
+
 test("markets page stays feed-first and shows the expanded launch catalogue", async ({ page }) => {
   await page.goto("/markets");
 
@@ -39,16 +66,17 @@ test("markets page stays feed-first and shows the expanded launch catalogue", as
 
 test("market board filters in place by category", async ({ page }) => {
   await page.goto("/markets");
+  const boardGrid = page.getByTestId("market-board-grid");
 
-  await page.getByRole("button", { name: "Economy" }).click();
+  await page.getByLabel("Category filters").getByRole("button", { name: "Economy" }).click();
 
   await expect(
-    page.getByRole("link", {
+    boardGrid.getByRole("link", {
       name: /CBK cut rate before Sept 30\?/i
     }).first()
   ).toBeVisible();
   await expect(
-    page.getByRole("link", {
+    boardGrid.getByRole("link", {
       name: /Gor Mahia above AFC Leopards\?/i
     })
   ).toHaveCount(0);
