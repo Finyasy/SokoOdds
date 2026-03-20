@@ -1,0 +1,186 @@
+name: sokoodds
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sokoodds}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-sokoodds}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    working_dir: /app/apps/api
+    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    environment:
+      APP_ENV: ${APP_ENV:-compose}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/sokoodds}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MARKET_ENGINE_HEALTH_URL: ${MARKET_ENGINE_HEALTH_URL:-http://market-engine:9000/internal/health}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    working_dir: /app/apps/api
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      APP_ENV: ${APP_ENV:-compose}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      API_V1_PREFIX: ${API_V1_PREFIX:-/api/v1}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/sokoodds}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MARKET_ENGINE_HEALTH_URL: ${MARKET_ENGINE_HEALTH_URL:-http://market-engine:9000/internal/health}
+      REQUIRE_ENGINE_READY_FOR_ORDERS: ${REQUIRE_ENGINE_READY_FOR_ORDERS:-true}
+      ENGINE_HEALTH_MODE: ${ENGINE_HEALTH_MODE:-http}
+      ENGINE_HEALTH_FALLBACK_STATUS: ${ENGINE_HEALTH_FALLBACK_STATUS:-ready}
+      ENGINE_HEALTH_FALLBACK_BOOKS_LOADED: ${ENGINE_HEALTH_FALLBACK_BOOKS_LOADED:-3}
+      DEMO_USER_DEFAULT_WALLET_BALANCE: ${DEMO_USER_DEFAULT_WALLET_BALANCE:-25000.00}
+      SEED_DEMO_MARKETS_ON_STARTUP: ${SEED_DEMO_MARKETS_ON_STARTUP:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; prefix = os.environ.get('API_V1_PREFIX', '/api/v1'); urllib.request.urlopen(f'http://127.0.0.1:8000{prefix}/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    working_dir: /app/apps/worker
+    command: ["python", "-m", "app.main"]
+    environment:
+      APP_ENV: ${APP_ENV:-compose}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@postgres:5432/sokoodds}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      WORKER_MODE: ${WORKER_MODE:-all}
+      WORKER_TICK_SECONDS: ${WORKER_TICK_SECONDS:-15}
+      WORKER_HEARTBEAT_FILE: ${WORKER_HEARTBEAT_FILE:-/tmp/sokoodds-worker.heartbeat}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from pathlib import Path; import time; path = Path('/tmp/sokoodds-worker.heartbeat'); raise SystemExit(0 if path.exists() and time.time() - path.stat().st_mtime < 60 else 1)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  market-engine:
+    build:
+      context: ../..
+      dockerfile: apps/market-engine/Dockerfile
+    environment:
+      ENGINE_PORT: ${ENGINE_PORT:-9000}
+      ENGINE_HYDRATION_DELAY_MS: ${ENGINE_HYDRATION_DELAY_MS:-750}
+      ENGINE_BOOKS_LOADED: ${ENGINE_BOOKS_LOADED:-3}
+      ENGINE_LAST_STREAM_OFFSET: ${ENGINE_LAST_STREAM_OFFSET:-orders:0-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    ports:
+      - "${ENGINE_PORT:-9000}:9000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/internal/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NODE_ENV: production
+      SOKOODDS_API_SERVER_URL: ${SOKOODDS_API_SERVER_URL:-http://api:8000/api/v1}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  postgres-data:
