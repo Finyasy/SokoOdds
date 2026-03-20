@@ -81,6 +81,7 @@ Current shipped behavior:
 - the launch catalogue has been expanded so the homepage and market board feel populated without drifting away from Kenya-first categories
 - category chips now filter in place on the board, and a compact urgency rail keeps closing markets visible without cluttering the page
 - homepage search and top navigation now drive the same in-place discovery state as the market board
+- signal-strip shortcuts now open focused boards such as `Trending politics` and `Ending soon economy`
 - market detail uses a first-visit WhatsApp prompt with dismissal persistence
 - the order ticket can open a lightweight account setup flow
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state

@@ -1,6 +1,11 @@
 import Link from "next/link";
 import type { Market } from "@/lib/mock-data";
-import { discoveryCategories, type DiscoveryCategory } from "@/lib/market-discovery";
+import {
+  discoveryCategories,
+  formatDiscoveryFocusLabel,
+  type DiscoveryCategory,
+  type DiscoveryFocus
+} from "@/lib/market-discovery";
 import { formatClosingLabel } from "@/lib/mock-data";
 import { MarketCard } from "./market-card";
 
@@ -10,6 +15,7 @@ type MarketBoardProps = {
   countQualifier: string;
   filteredMarkets: Market[];
   activeFilter: DiscoveryCategory;
+  activeFocus: DiscoveryFocus;
   searchQuery: string;
   onFilterChange: (filter: DiscoveryCategory) => void;
   onClearDiscovery: () => void;
@@ -24,6 +30,7 @@ export function MarketBoard({
   countQualifier,
   filteredMarkets,
   activeFilter,
+  activeFocus,
   searchQuery,
   onFilterChange,
   onClearDiscovery,
@@ -35,6 +42,10 @@ export function MarketBoard({
   const countLabel = `${filteredMarkets.length} ${countQualifier} contract${
     filteredMarkets.length === 1 ? "" : "s"
   }`;
+  const hasActiveFocus = activeFocus !== "all";
+  const focusLabel = `${formatDiscoveryFocusLabel(activeFocus)} ${
+    activeFilter === "All" ? "markets" : activeFilter.toLowerCase()
+  }`;
 
   return (
     <section className="section-stack landing-feed">
@@ -45,6 +56,18 @@ export function MarketBoard({
         </div>
         <span className="markets-feed__count">{countLabel}</span>
       </div>
+
+      {hasActiveFocus ? (
+        <div className="market-board-focus" data-testid="market-board-focus">
+          <div className="market-board-focus__copy">
+            <span className="market-board-focus__label">Focus</span>
+            <strong>{focusLabel}</strong>
+          </div>
+          <button type="button" className="ghost-button" onClick={onClearDiscovery}>
+            Show all markets
+          </button>
+        </div>
+      ) : null}
 
       <div className="filter-row filter-row--dense" aria-label="Category filters">
         {discoveryCategories.map((filter) => (

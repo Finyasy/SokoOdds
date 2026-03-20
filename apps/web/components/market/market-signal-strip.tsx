@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import type { Market } from "@/lib/mock-data";
+import {
+  buildDiscoveryHref,
+  type DiscoveryCategory,
+  type DiscoveryFocus
+} from "@/lib/market-discovery";
 import { formatClosingLabel, formatKes, formatPercent } from "@/lib/mock-data";
 
 type MarketSignalStripProps = {
@@ -16,19 +21,48 @@ function byClosingAsc(a: Market, b: Market) {
   return new Date(a.closesAt).getTime() - new Date(b.closesAt).getTime();
 }
 
+function getSignalCategories(markets: Market[]) {
+  return [...new Set(markets.map((market) => market.category))].slice(0, 3);
+}
+
+function formatSignalBoardLabel(focus: DiscoveryFocus, category: DiscoveryCategory) {
+  const categoryLabel = category.toLowerCase();
+  return focus === "trending" ? `Trending ${categoryLabel}` : `Ending soon ${categoryLabel}`;
+}
+
 export function MarketSignalStrip({ markets }: MarketSignalStripProps) {
   const trendingMarkets = [...markets].sort(byVolumeDesc).slice(0, 3);
   const endingSoonMarkets = [...markets]
     .filter((market) => market.status === "Closing Soon")
     .sort(byClosingAsc)
     .slice(0, 3);
+  const trendingCategories = getSignalCategories(trendingMarkets);
+  const endingSoonCategories = getSignalCategories(endingSoonMarkets);
 
   return (
     <section className="signal-strip" aria-label="Market signals">
       <div className="signal-strip__cluster">
         <div className="signal-strip__cluster-head">
-          <span className="signal-strip__label">Trending now</span>
-          <span className="signal-strip__caption">Highest volume on the board</span>
+          <div className="signal-strip__copy-block">
+            <Link
+              href={buildDiscoveryHref("/markets", "All", "", "trending")}
+              className="signal-strip__label-link"
+            >
+              <span className="signal-strip__label">Trending now</span>
+            </Link>
+            <span className="signal-strip__caption">Highest volume on the board</span>
+          </div>
+          <div className="signal-strip__focuses" aria-label="Trending focus boards">
+            {trendingCategories.map((category) => (
+              <Link
+                key={category}
+                href={buildDiscoveryHref("/markets", category, "", "trending")}
+                className="signal-strip__focus-link"
+              >
+                {formatSignalBoardLabel("trending", category)}
+              </Link>
+            ))}
+          </div>
         </div>
 
         <div className="signal-strip__items">
@@ -48,8 +82,26 @@ export function MarketSignalStrip({ markets }: MarketSignalStripProps) {
 
       <div className="signal-strip__cluster signal-strip__cluster--quiet">
         <div className="signal-strip__cluster-head">
-          <span className="signal-strip__label">Ending soon</span>
-          <span className="signal-strip__caption">Markets that need a faster decision</span>
+          <div className="signal-strip__copy-block">
+            <Link
+              href={buildDiscoveryHref("/markets", "All", "", "ending-soon")}
+              className="signal-strip__label-link"
+            >
+              <span className="signal-strip__label">Ending soon</span>
+            </Link>
+            <span className="signal-strip__caption">Markets that need a faster decision</span>
+          </div>
+          <div className="signal-strip__focuses" aria-label="Ending soon focus boards">
+            {endingSoonCategories.map((category) => (
+              <Link
+                key={category}
+                href={buildDiscoveryHref("/markets", category, "", "ending-soon")}
+                className="signal-strip__focus-link"
+              >
+                {formatSignalBoardLabel("ending-soon", category)}
+              </Link>
+            ))}
+          </div>
         </div>
 
         <div className="signal-strip__items">

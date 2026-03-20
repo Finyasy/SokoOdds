@@ -16,8 +16,12 @@ test.beforeEach(async ({ page }) => {
 test("homepage opens directly on the discovery markets surface", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByLabel("Market signals").getByText("Trending now")).toBeVisible();
-  await expect(page.getByLabel("Market signals").getByText("Ending soon")).toBeVisible();
+  await expect(
+    page.getByLabel("Market signals").getByRole("link", { name: "Trending now", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Market signals").getByRole("link", { name: "Ending soon", exact: true })
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {
@@ -49,6 +53,24 @@ test("homepage header search and nav filter the board in place", async ({ page }
   await expect(
     boardGrid.getByRole("link", {
       name: /Nairobi mobility bill before June 30\?/i
+    }).first()
+  ).toBeVisible();
+});
+
+test("signal strip links open focused discovery boards", async ({ page }) => {
+  await page.goto("/");
+  const boardGrid = page.getByTestId("market-board-grid");
+
+  await page
+    .getByLabel("Market signals")
+    .getByRole("link", { name: "Ending soon economy" })
+    .click();
+
+  await expect(page.getByTestId("market-board-focus")).toContainText("Ending soon economy");
+  await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /KES above 135 per USD on June 30\?/i
     }).first()
   ).toBeVisible();
 });

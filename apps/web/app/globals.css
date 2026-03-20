@@ -503,6 +503,11 @@ button:disabled {
   gap: 12px;
 }
 
+.signal-strip__copy-block {
+  display: grid;
+  gap: 6px;
+}
+
 .signal-strip__label {
   color: rgba(17, 19, 21, 0.6);
   font-size: 0.72rem;
@@ -511,9 +516,37 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.signal-strip__label-link {
+  display: inline-flex;
+}
+
 .signal-strip__caption {
   color: rgba(17, 19, 21, 0.52);
   font-size: 0.82rem;
+}
+
+.signal-strip__focuses {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.signal-strip__focus-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 19, 21, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(17, 19, 21, 0.68);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.signal-strip__focus-link:hover {
+  transform: translateY(-1px);
 }
 
 .signal-strip__items {
@@ -632,6 +665,34 @@ button:disabled {
 .market-board-empty span {
   color: var(--muted);
   max-width: 480px;
+}
+
+.market-board-focus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(17, 19, 21, 0.07);
+  border-radius: 22px;
+  background: rgba(255, 253, 248, 0.82);
+}
+
+.market-board-focus__copy {
+  display: grid;
+  gap: 4px;
+}
+
+.market-board-focus__label {
+  color: rgba(17, 19, 21, 0.5);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.market-board-focus strong {
+  font-size: 0.95rem;
 }
 
 .section-stack--compact {
@@ -1738,6 +1799,7 @@ button:disabled {
 
   .signal-strip,
   .signal-strip__cluster-head,
+  .market-board-focus,
   .market-rail__items {
     display: grid;
   }

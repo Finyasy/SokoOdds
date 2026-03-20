@@ -3,7 +3,12 @@
 import { useMemo, useState } from "react";
 import { SiteHeader } from "@/components/layout/site-header";
 import type { Market } from "@/lib/mock-data";
-import { filterDiscoveryMarkets, type DiscoveryCategory } from "@/lib/market-discovery";
+import {
+  filterDiscoveryMarkets,
+  formatDiscoveryFocusLabel,
+  type DiscoveryCategory,
+  type DiscoveryFocus
+} from "@/lib/market-discovery";
 import { MarketBoard } from "./market-board";
 import { MarketSignalStrip } from "./market-signal-strip";
 
@@ -17,6 +22,7 @@ type MarketDiscoveryShellProps = {
   footerLabel: string;
   initialCategory?: DiscoveryCategory;
   initialSearchQuery?: string;
+  initialFocus?: DiscoveryFocus;
   showSignalStrip?: boolean;
 };
 
@@ -30,17 +36,31 @@ export function MarketDiscoveryShell({
   footerLabel,
   initialCategory = "All",
   initialSearchQuery = "",
+  initialFocus = "all",
   showSignalStrip = false
 }: MarketDiscoveryShellProps) {
   const [activeCategory, setActiveCategory] = useState<DiscoveryCategory>(initialCategory);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const [activeFocus, setActiveFocus] = useState<DiscoveryFocus>(initialFocus);
 
   const filteredMarkets = useMemo(
-    () => filterDiscoveryMarkets(markets, activeCategory, searchQuery),
-    [activeCategory, markets, searchQuery]
+    () => filterDiscoveryMarkets(markets, activeCategory, searchQuery, activeFocus),
+    [activeCategory, activeFocus, markets, searchQuery]
   );
 
-  const showSignals = showSignalStrip && activeCategory === "All" && searchQuery.trim() === "";
+  const showSignals =
+    showSignalStrip &&
+    activeCategory === "All" &&
+    activeFocus === "all" &&
+    searchQuery.trim() === "";
+  const boardTitle =
+    activeFocus === "all"
+      ? title
+      : `${formatDiscoveryFocusLabel(activeFocus)} ${
+          activeCategory === "All" ? "markets" : activeCategory.toLowerCase()
+        }`;
+  const boardKicker = activeFocus === "all" ? kicker : "Focused board";
+  const boardCountQualifier = activeFocus === "all" ? countQualifier : "matching";
 
   return (
     <>
@@ -55,16 +75,18 @@ export function MarketDiscoveryShell({
         {showSignals ? <MarketSignalStrip markets={markets} /> : null}
 
         <MarketBoard
-          title={title}
-          kicker={kicker}
-          countQualifier={countQualifier}
+          title={boardTitle}
+          kicker={boardKicker}
+          countQualifier={boardCountQualifier}
           filteredMarkets={filteredMarkets}
           activeFilter={activeCategory}
+          activeFocus={activeFocus}
           searchQuery={searchQuery}
           onFilterChange={setActiveCategory}
           onClearDiscovery={() => {
             setActiveCategory("All");
             setSearchQuery("");
+            setActiveFocus("all");
           }}
           footerText={footerText}
           footerHref={footerHref}
