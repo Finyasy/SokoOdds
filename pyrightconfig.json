@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/packages/vscode-pyright/schemas/pyrightconfig.schema.json",
+  "include": [
+    "apps/api/app",
+    "apps/api/tests",
+    "apps/worker/app",
+    "apps/worker/tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/.venv",
+    "**/node_modules"
+  ],
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": "none",
+  "executionEnvironments": [
+    {
+      "root": "apps/api"
+    },
+    {
+      "root": "apps/worker"
+    }
+  ]
+}
