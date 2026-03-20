@@ -17,6 +17,7 @@ type MarketBoardProps = {
   activeFilter: DiscoveryCategory;
   activeFocus: DiscoveryFocus;
   searchQuery: string;
+  isTransitioning: boolean;
   onFilterChange: (filter: DiscoveryCategory) => void;
   onClearDiscovery: () => void;
   footerText: string;
@@ -32,6 +33,7 @@ export function MarketBoard({
   activeFilter,
   activeFocus,
   searchQuery,
+  isTransitioning,
   onFilterChange,
   onClearDiscovery,
   footerText,
@@ -48,7 +50,11 @@ export function MarketBoard({
   }`;
 
   return (
-    <section className="section-stack landing-feed">
+    <section
+      className="section-stack landing-feed"
+      data-transitioning={isTransitioning ? "true" : "false"}
+      aria-busy={isTransitioning}
+    >
       <div className="markets-feed__header">
         <div>
           <span className="section-kicker">{kicker}</span>

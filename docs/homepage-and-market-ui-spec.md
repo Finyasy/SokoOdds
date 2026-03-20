@@ -31,6 +31,7 @@ Already live in the checked-in app:
 - homepage now opens directly on a live `All markets` feed with no oversized marketing hero
 - header uses a compact search-plus-category-rail pattern so users can scan bets immediately
 - homepage header search and top nav now drive the same in-place board state instead of acting like static chrome
+- board title, count, and market grid now transition softly during discovery changes instead of snapping abruptly
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
 - the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
 - a thin market-signals strip now surfaces `Trending now` and `Ending soon` above the grid without turning the page back into a hero

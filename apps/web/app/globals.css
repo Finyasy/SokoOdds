@@ -468,6 +468,30 @@ button:disabled {
   gap: 20px;
 }
 
+.landing-feed .markets-feed__header,
+.landing-feed .market-board-focus,
+.landing-feed .market-rail,
+.landing-feed .card-grid,
+.landing-feed .market-board-empty,
+.landing-feed .landing-feed__footer {
+  transition:
+    opacity 180ms ease,
+    transform 220ms ease,
+    filter 220ms ease;
+  will-change: opacity, transform;
+}
+
+.landing-feed[data-transitioning="true"] .markets-feed__header,
+.landing-feed[data-transitioning="true"] .market-board-focus,
+.landing-feed[data-transitioning="true"] .market-rail,
+.landing-feed[data-transitioning="true"] .card-grid,
+.landing-feed[data-transitioning="true"] .market-board-empty,
+.landing-feed[data-transitioning="true"] .landing-feed__footer {
+  opacity: 0.72;
+  transform: translateY(6px);
+  filter: saturate(0.92);
+}
+
 .signal-strip {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import { SiteHeader } from "@/components/layout/site-header";
 import type { Market } from "@/lib/mock-data";
 import {
@@ -42,33 +42,50 @@ export function MarketDiscoveryShell({
   const [activeCategory, setActiveCategory] = useState<DiscoveryCategory>(initialCategory);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [activeFocus, setActiveFocus] = useState<DiscoveryFocus>(initialFocus);
+  const [isPending, startBoardTransition] = useTransition();
+  const deferredCategory = useDeferredValue(activeCategory);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const deferredFocus = useDeferredValue(activeFocus);
 
   const filteredMarkets = useMemo(
-    () => filterDiscoveryMarkets(markets, activeCategory, searchQuery, activeFocus),
-    [activeCategory, activeFocus, markets, searchQuery]
+    () => filterDiscoveryMarkets(markets, deferredCategory, deferredSearchQuery, deferredFocus),
+    [deferredCategory, deferredFocus, deferredSearchQuery, markets]
   );
 
   const showSignals =
     showSignalStrip &&
-    activeCategory === "All" &&
-    activeFocus === "all" &&
-    searchQuery.trim() === "";
+    deferredCategory === "All" &&
+    deferredFocus === "all" &&
+    deferredSearchQuery.trim() === "";
   const boardTitle =
-    activeFocus === "all"
+    deferredFocus === "all"
       ? title
-      : `${formatDiscoveryFocusLabel(activeFocus)} ${
-          activeCategory === "All" ? "markets" : activeCategory.toLowerCase()
+      : `${formatDiscoveryFocusLabel(deferredFocus)} ${
+          deferredCategory === "All" ? "markets" : deferredCategory.toLowerCase()
         }`;
-  const boardKicker = activeFocus === "all" ? kicker : "Focused board";
-  const boardCountQualifier = activeFocus === "all" ? countQualifier : "matching";
+  const boardKicker = deferredFocus === "all" ? kicker : "Focused board";
+  const boardCountQualifier = deferredFocus === "all" ? countQualifier : "matching";
+  const isBoardTransitioning =
+    isPending ||
+    activeCategory !== deferredCategory ||
+    activeFocus !== deferredFocus ||
+    searchQuery !== deferredSearchQuery;
 
   return (
     <>
       <SiteHeader
         searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
+        onSearchChange={(value) => {
+          startBoardTransition(() => {
+            setSearchQuery(value);
+          });
+        }}
         activeMarketCategory={activeCategory}
-        onSelectMarketCategory={setActiveCategory}
+        onSelectMarketCategory={(value) => {
+          startBoardTransition(() => {
+            setActiveCategory(value);
+          });
+        }}
       />
 
       <main className="site-shell page-stack">
@@ -79,14 +96,21 @@ export function MarketDiscoveryShell({
           kicker={boardKicker}
           countQualifier={boardCountQualifier}
           filteredMarkets={filteredMarkets}
-          activeFilter={activeCategory}
-          activeFocus={activeFocus}
+          activeFilter={deferredCategory}
+          activeFocus={deferredFocus}
           searchQuery={searchQuery}
-          onFilterChange={setActiveCategory}
+          isTransitioning={isBoardTransitioning}
+          onFilterChange={(value) => {
+            startBoardTransition(() => {
+              setActiveCategory(value);
+            });
+          }}
           onClearDiscovery={() => {
-            setActiveCategory("All");
-            setSearchQuery("");
-            setActiveFocus("all");
+            startBoardTransition(() => {
+              setActiveCategory("All");
+              setSearchQuery("");
+              setActiveFocus("all");
+            });
           }}
           footerText={footerText}
           footerHref={footerHref}
