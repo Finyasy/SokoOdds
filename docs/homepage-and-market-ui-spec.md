@@ -176,6 +176,12 @@ Help a first-time user understand:
 3. what markets are active now
 4. how to start with minimal friction
 
+Homepage priority note:
+
+- the first viewport should lead with live discovery cards, not an oversized marketing hero
+- product explanation should support the market grid, not delay it
+- a user opening the site should be able to scan active bets immediately
+
 ### Section Order
 
 #### 1. Header
@@ -191,42 +197,18 @@ Behavior:
 - sticky on desktop and mobile
 - collapses into compact layout on narrow screens
 
-#### 2. Hero
+#### 2. Discovery-Led Top Strip
 
-Left side:
+Keep the top section compact.
 
-- clear value proposition
-- one-sentence Kenya-first positioning
-- primary and secondary CTA
+Must include:
 
-Recommended copy:
-
-- headline: `Trade real-world questions with M-Pesa-ready funding`
-- subcopy: `Follow politics, football, business, and everyday Kenya signals with clear rules and visible payouts.`
-- primary CTA: `Explore Markets`
-- secondary CTA: `How It Works`
-
-Right side:
-
-- `HeroPulseBoard` with 2 to 3 active market cards
-- visible YES and NO probabilities
-- KES volume and closing time
-- subtle live pulse treatment without pretending to be a real exchange feed
-
-### Hero Mock Data
-
-Use Kenya-first seed content in the scaffold:
-
-- `Will William Ruto serve a full second term?` - Politics - YES `61%` - NO `39%` - `KES 2.4M` volume
-- `Will Harambee Stars qualify for AFCON 2026?` - Football - YES `38%` - NO `62%` - `KES 890K` volume
-- `Will KES/USD rate exceed 140 by June 2026?` - Economy - YES `54%` - NO `46%` - `KES 1.1M` volume
-
-Hero card motion:
-
-- pulse one card at a time every 4 to 6 seconds
-- animate a YES or NO move by at most `1%`
-- use smooth value transitions, not flashing counters
-- never animate all cards at once
+- short Kenya-first framing
+- one compact headline
+- one supporting line
+- primary market CTA
+- optional secondary CTA
+- immediate transition into the market grid below
 
 #### 3. Discovery Bands
 

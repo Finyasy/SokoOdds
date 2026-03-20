@@ -13,6 +13,17 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test("homepage opens directly on the discovery markets surface", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Open markets, visible at a glance." })).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: /Will Nairobi county sign the urban mobility bill before June 30, 2026\?/i
+    }).first()
+  ).toBeVisible();
+});
+
 test("market detail opens with the first-time WhatsApp prompt", async ({ page }) => {
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 

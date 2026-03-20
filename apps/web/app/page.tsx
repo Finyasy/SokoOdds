@@ -4,8 +4,7 @@ import { SiteHeader } from "@/components/layout/site-header";
 import { MarketCard } from "@/components/market/market-card";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { TrustCard } from "@/components/ui/trust-card";
-import { getHomepageMarketGroups } from "@/lib/market-api";
-import { formatKes } from "@/lib/mock-data";
+import { getHomepageMarketGroups, getMarkets } from "@/lib/market-api";
 
 const trustCards = [
   {
@@ -25,57 +24,62 @@ const trustCards = [
   }
 ];
 
+const discoveryCategories = ["Politics", "Football", "Economy", "Weather", "Culture"];
+
 export default async function HomePage() {
+  const markets = await getMarkets();
   const { featuredMarkets, endingSoonMarkets, kenyaPulseMarkets } =
     await getHomepageMarketGroups();
+  const discoveryMarkets = markets.slice(0, 6);
 
   return (
     <>
       <SiteHeader />
       <main className="site-shell page-stack">
-        <section className="hero-panel">
-          <div className="hero-panel__copy">
-            <span className="hero-panel__eyebrow">Kenya-first event markets</span>
-            <h1>Trade what East Africa believes with rules you can actually trust.</h1>
-            <p>
-              SokoOdds combines a Polymarket-style trading surface, Kalshi-style contract
-              discipline, Kenya-native payment clarity, and a calmer Stripe-inspired product feel.
-            </p>
-            <div className="hero-panel__actions">
+        <section className="section-stack home-discovery-surface">
+          <div className="discovery-topbar">
+            <div className="discovery-topbar__copy">
+              <span className="section-heading__eyebrow">Discovery</span>
+              <h1>Open markets, visible at a glance.</h1>
+              <p>
+                Start with the live questions. Prices, close times, and KES volume stay upfront
+                without a heavy marketing block getting in the way.
+              </p>
+            </div>
+
+            <div className="discovery-topbar__actions">
               <Link href="/markets" className="primary-button">
-                Explore markets
+                View all markets
               </Link>
               <Link
                 href="/markets/nairobi-governor-bill-sign-before-june"
-                className="ghost-button ghost-button--light"
+                className="ghost-button"
               >
-                See a sample market
+                Open sample market
               </Link>
-            </div>
-            <div className="hero-panel__metrics">
-              <div>
-                <span>KES-first wallet view</span>
-                <strong>{formatKes(1500000)} scaffold liquidity</strong>
-              </div>
-              <div>
-                <span>Market trust baseline</span>
-                <strong>Resolution source on every contract</strong>
-              </div>
             </div>
           </div>
 
-          <div className="hero-panel__board">
-            {featuredMarkets.map((market) => (
-              <MarketCard key={market.slug} market={market} variant="compact" />
+          <div className="filter-row">
+            {discoveryCategories.map((category) => (
+              <Link key={category} href="/markets" className="filter-chip">
+                {category}
+              </Link>
+            ))}
+          </div>
+
+          <div className="card-grid card-grid--glance">
+            {discoveryMarkets.map((market) => (
+              <MarketCard key={market.slug} market={market} variant="glance" />
             ))}
           </div>
         </section>
 
         <section className="section-stack">
           <SectionHeading
-            eyebrow="Discovery"
-            title="Trending now"
-            description="Probability-first cards, visible close times, and local categories users recognize without translation."
+            eyebrow="Trending"
+            title="Markets with the strongest early momentum"
+            description="Featured questions stay visible below the fold without making the homepage feel slower or heavier."
           />
           <div className="card-grid">
             {featuredMarkets.map((market) => (

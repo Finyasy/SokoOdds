@@ -5,7 +5,7 @@ import { ProbabilityPill } from "./probability-pill";
 
 type MarketCardProps = {
   market: Market;
-  variant?: "default" | "compact";
+  variant?: "default" | "compact" | "glance";
 };
 
 export function MarketCard({ market, variant = "default" }: MarketCardProps) {
