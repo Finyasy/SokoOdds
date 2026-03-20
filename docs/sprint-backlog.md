@@ -77,6 +77,7 @@ Current shipped behavior:
 - homepage, markets page, and market detail page are API-backed
 - homepage now leads with a discovery-first `All markets` feed instead of a large hero
 - shared card surfaces use a calmer ivory modular style with soft borders and glanceable YES/NO actions
+- the launch catalogue has been expanded so the homepage and market board feel populated without drifting away from Kenya-first categories
 - market detail uses a first-visit WhatsApp prompt with dismissal persistence
 - the order ticket can open a lightweight account setup flow
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state

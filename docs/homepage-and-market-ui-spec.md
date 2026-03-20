@@ -31,6 +31,7 @@ Already live in the checked-in app:
 - homepage now opens directly on a live `All markets` feed with no oversized marketing hero
 - header uses a compact search-plus-category-rail pattern so users can scan bets immediately
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
+- the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
 - first market-detail visit shows a dismissible WhatsApp prompt
 - the trading CTA opens a lightweight account setup sheet
 - account creation is backed by the API through a same-origin Next.js route
@@ -60,6 +61,7 @@ Still intentionally not live in this pass:
 - default to KES and East Africa time
 - foreground mobile money and low-friction onboarding
 - use Kenya-first categories before broadening regionally
+- keep the launch catalogue dense with real local categories before adding broad global sprawl
 - use trusted local resolution sources on every market
 - keep wording plain and legible for non-traders
 

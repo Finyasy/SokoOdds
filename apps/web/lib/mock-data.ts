@@ -264,6 +264,226 @@ export const markets: Market[] = [
       { id: "t-5002", side: "YES", price: 0.72, shares: 90, time: "15:32" },
       { id: "t-5003", side: "NO", price: 0.28, shares: 60, time: "14:48" }
     ]
+  },
+  {
+    id: "market-iebc-chair-approved-october",
+    slug: "iebc-chair-approved-before-october",
+    category: "Politics",
+    status: "Open",
+    question: "Will Parliament approve the next IEBC chair nominee before October 31, 2026?",
+    shortLabel: "IEBC chair nominee approved before Oct 31?",
+    summary:
+      "A parliamentary-approval market tracking whether the next chair nominee clears the full approval process before the October deadline.",
+    region: "Kenya Politics",
+    yesPrice: 0.57,
+    noPrice: 0.43,
+    volumeKes: 268000,
+    liquidityKes: 104000,
+    closesAt: "2026-10-31T17:00:00+03:00",
+    resolutionSource: "Official National Assembly record and Gazette notice.",
+    ruleHighlights: [
+      "Resolves YES only after the nominee is formally approved and published through the official process.",
+      "Committee recommendation alone does not count.",
+      "If the nomination is withdrawn or lapses before approval, the market resolves NO."
+    ],
+    trustNotes: [
+      "Resolution depends on official parliamentary and gazette evidence.",
+      "High-sensitivity governance markets may pause near major procedural announcements.",
+      "Any disputed interpretation is published alongside the final resolution note."
+    ],
+    orderBook: {
+      yesBids: [
+        { price: 0.56, shares: 200 },
+        { price: 0.55, shares: 320 },
+        { price: 0.53, shares: 405 }
+      ],
+      noBids: [
+        { price: 0.44, shares: 180 },
+        { price: 0.45, shares: 260 },
+        { price: 0.47, shares: 350 }
+      ]
+    },
+    trades: [
+      { id: "t-6001", side: "YES", price: 0.57, shares: 95, time: "13:15" },
+      { id: "t-6002", side: "NO", price: 0.43, shares: 60, time: "12:41" },
+      { id: "t-6003", side: "YES", price: 0.56, shares: 44, time: "12:08" }
+    ]
+  },
+  {
+    id: "market-kenya-police-top-three-fkf",
+    slug: "kenya-police-top-three-fkf",
+    category: "Football",
+    status: "Open",
+    question: "Will Kenya Police FC finish in the top three of the 2026 FKF Premier League season?",
+    shortLabel: "Kenya Police FC top 3 in FKF?",
+    summary:
+      "A standings market based on whether Kenya Police FC secures a final top-three finish by the end of the league season.",
+    region: "Kenya Football",
+    yesPrice: 0.49,
+    noPrice: 0.51,
+    volumeKes: 287000,
+    liquidityKes: 110000,
+    closesAt: "2026-09-18T18:00:00+03:00",
+    resolutionSource: "Official FKF Premier League final standings.",
+    ruleHighlights: [
+      "Resolves YES if Kenya Police FC finishes first, second, or third in the final table.",
+      "Point deductions or disciplinary decisions count if they are part of the final official table.",
+      "If the season ends without an official final table, the market resolves VOID."
+    ],
+    trustNotes: [
+      "Resolution waits for the final published FKF standings.",
+      "Table changes from late sanctions can pause settlement until the final official ruling lands.",
+      "Sports markets retain a visible rule source and close time near the order ticket."
+    ],
+    orderBook: {
+      yesBids: [
+        { price: 0.48, shares: 210 },
+        { price: 0.47, shares: 285 },
+        { price: 0.45, shares: 360 }
+      ],
+      noBids: [
+        { price: 0.52, shares: 200 },
+        { price: 0.53, shares: 270 },
+        { price: 0.55, shares: 325 }
+      ]
+    },
+    trades: [
+      { id: "t-7001", side: "NO", price: 0.51, shares: 88, time: "16:32" },
+      { id: "t-7002", side: "YES", price: 0.49, shares: 74, time: "16:04" },
+      { id: "t-7003", side: "NO", price: 0.52, shares: 55, time: "15:17" }
+    ]
+  },
+  {
+    id: "market-cbk-cut-rate-september",
+    slug: "cbk-cut-rate-before-september-end",
+    category: "Economy",
+    status: "Open",
+    question: "Will the Central Bank of Kenya cut its policy rate before September 30, 2026?",
+    shortLabel: "CBK cut rate before Sept 30?",
+    summary:
+      "A macro policy market tracking whether the Central Bank of Kenya makes a rate cut before the end of September 2026.",
+    region: "Kenya Economy",
+    yesPrice: 0.46,
+    noPrice: 0.54,
+    volumeKes: 351000,
+    liquidityKes: 140000,
+    closesAt: "2026-09-30T18:00:00+03:00",
+    resolutionSource: "Official Central Bank of Kenya MPC statement.",
+    ruleHighlights: [
+      "Resolves YES if the official policy rate is cut by any amount before the deadline.",
+      "Forward guidance without an actual rate change does not count.",
+      "Emergency MPC action counts if it is official and dated before the deadline."
+    ],
+    trustNotes: [
+      "Resolution uses the official CBK statement only.",
+      "Macro-policy markets may see sudden repricing around MPC days and inflation releases.",
+      "The market page shows the exact source used for final settlement."
+    ],
+    orderBook: {
+      yesBids: [
+        { price: 0.45, shares: 230 },
+        { price: 0.44, shares: 310 },
+        { price: 0.42, shares: 420 }
+      ],
+      noBids: [
+        { price: 0.55, shares: 205 },
+        { price: 0.56, shares: 295 },
+        { price: 0.58, shares: 360 }
+      ]
+    },
+    trades: [
+      { id: "t-8001", side: "NO", price: 0.54, shares: 105, time: "15:55" },
+      { id: "t-8002", side: "YES", price: 0.46, shares: 92, time: "15:06" },
+      { id: "t-8003", side: "NO", price: 0.55, shares: 64, time: "14:27" }
+    ]
+  },
+  {
+    id: "market-mombasa-heatwave-august",
+    slug: "mombasa-heatwave-august",
+    category: "Weather",
+    status: "Closing Soon",
+    question: "Will Mombasa record three consecutive days above 33C before August 31, 2026?",
+    shortLabel: "Mombasa 3-day heatwave before Aug 31?",
+    summary:
+      "A weather threshold market using official daily observations to track a late-August heatwave pattern in Mombasa.",
+    region: "Coast Weather",
+    yesPrice: 0.34,
+    noPrice: 0.66,
+    volumeKes: 176000,
+    liquidityKes: 82000,
+    closesAt: "2026-08-31T18:00:00+03:00",
+    resolutionSource: "Kenya Meteorological Department station observations.",
+    ruleHighlights: [
+      "Resolves YES if official maximum temperatures exceed 33.0C on three consecutive days before the deadline.",
+      "Unofficial app-based readings do not count.",
+      "If one observation day is revised, the revised official record governs."
+    ],
+    trustNotes: [
+      "Weather thresholds are resolved from the named official station series only.",
+      "Closing-soon weather markets can stay open right up to the final observation window.",
+      "Settlement notes explain any delayed or corrected observations."
+    ],
+    orderBook: {
+      yesBids: [
+        { price: 0.33, shares: 150 },
+        { price: 0.32, shares: 210 },
+        { price: 0.3, shares: 280 }
+      ],
+      noBids: [
+        { price: 0.67, shares: 165 },
+        { price: 0.68, shares: 225 },
+        { price: 0.7, shares: 305 }
+      ]
+    },
+    trades: [
+      { id: "t-9001", side: "NO", price: 0.66, shares: 70, time: "11:48" },
+      { id: "t-9002", side: "YES", price: 0.34, shares: 54, time: "11:13" },
+      { id: "t-9003", side: "NO", price: 0.67, shares: 48, time: "10:44" }
+    ]
+  },
+  {
+    id: "market-blankets-wine-nairobi-sellout",
+    slug: "blankets-wine-nairobi-sellout",
+    category: "Culture",
+    status: "Open",
+    question: "Will the next Blankets & Wine Nairobi edition sell out before gates open?",
+    shortLabel: "Blankets & Wine Nairobi sell out?",
+    summary:
+      "A culture market tracking whether the next Nairobi edition reaches official sold-out status before gates open.",
+    region: "Nairobi Culture",
+    yesPrice: 0.64,
+    noPrice: 0.36,
+    volumeKes: 244000,
+    liquidityKes: 97000,
+    closesAt: "2026-11-07T17:00:00+03:00",
+    resolutionSource: "Official event promoter notice and ticketing status page.",
+    ruleHighlights: [
+      "Resolves YES only if the official promoter or ticketing partner confirms sold out before gates open.",
+      "Reseller scarcity or social claims do not count.",
+      "If the event is postponed, settlement follows the updated official ticketing terms."
+    ],
+    trustNotes: [
+      "Entertainment markets settle from named official sources only.",
+      "Material schedule changes trigger an on-page notice and, when needed, a pause.",
+      "Users can review the settlement evidence after the outcome resolves."
+    ],
+    orderBook: {
+      yesBids: [
+        { price: 0.63, shares: 190 },
+        { price: 0.62, shares: 250 },
+        { price: 0.6, shares: 330 }
+      ],
+      noBids: [
+        { price: 0.37, shares: 145 },
+        { price: 0.38, shares: 210 },
+        { price: 0.4, shares: 265 }
+      ]
+    },
+    trades: [
+      { id: "t-10001", side: "YES", price: 0.64, shares: 82, time: "17:04" },
+      { id: "t-10002", side: "NO", price: 0.36, shares: 58, time: "16:26" },
+      { id: "t-10003", side: "YES", price: 0.63, shares: 46, time: "15:52" }
+    ]
   }
 ];
 

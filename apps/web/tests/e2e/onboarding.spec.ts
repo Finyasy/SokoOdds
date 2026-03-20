@@ -24,6 +24,17 @@ test("homepage opens directly on the discovery markets surface", async ({ page }
   ).toBeVisible();
 });
 
+test("markets page stays feed-first and shows the expanded launch catalogue", async ({ page }) => {
+  await page.goto("/markets");
+
+  await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: /IEBC chair nominee approved before Oct 31\?/i
+    }).first()
+  ).toBeVisible();
+});
+
 test("market detail opens with the first-time WhatsApp prompt", async ({ page }) => {
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
