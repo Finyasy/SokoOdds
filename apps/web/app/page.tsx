@@ -1,28 +1,43 @@
 import { SiteFooter } from "@/components/layout/site-footer";
-import { SiteHeader } from "@/components/layout/site-header";
-import { MarketBoard } from "@/components/market/market-board";
-import { MarketSignalStrip } from "@/components/market/market-signal-strip";
+import { MarketDiscoveryShell } from "@/components/market/market-discovery-shell";
 import { getMarkets } from "@/lib/market-api";
+import {
+  parseDiscoveryCategory,
+  parseDiscoveryFocus,
+  readSingleSearchParam
+} from "@/lib/market-discovery";
 
-export default async function HomePage() {
+type HomePageProps = {
+  searchParams?: Promise<{
+    category?: string | string[];
+    focus?: string | string[];
+    q?: string | string[];
+  }>;
+};
+
+export default async function HomePage({ searchParams }: HomePageProps) {
   const markets = await getMarkets();
   const discoveryMarkets = markets.slice(0, 8);
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const initialCategory = parseDiscoveryCategory(readSingleSearchParam(resolvedSearchParams.category));
+  const initialFocus = parseDiscoveryFocus(readSingleSearchParam(resolvedSearchParams.focus));
+  const initialSearchQuery = readSingleSearchParam(resolvedSearchParams.q) ?? "";
 
   return (
-      <>
-      <SiteHeader />
-      <main className="site-shell page-stack">
-        <MarketSignalStrip markets={markets} />
-        <MarketBoard
-          title="All markets"
-          kicker="Live discovery"
-          countLabel={`${discoveryMarkets.length} live contracts`}
-          markets={discoveryMarkets}
-          footerText="Smaller market set, clearer depth, faster scanning."
-          footerHref="/markets"
-          footerLabel="Show more markets"
-        />
-      </main>
+    <>
+      <MarketDiscoveryShell
+        title="All markets"
+        kicker="Live discovery"
+        countQualifier="live"
+        markets={discoveryMarkets}
+        footerText="Smaller market set, clearer depth, faster scanning."
+        footerHref="/markets"
+        footerLabel="Show more markets"
+        initialCategory={initialCategory}
+        initialFocus={initialFocus}
+        initialSearchQuery={initialSearchQuery}
+        showSignalStrip
+      />
       <SiteFooter />
     </>
   );

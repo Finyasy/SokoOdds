@@ -16,12 +16,68 @@ test.beforeEach(async ({ page }) => {
 test("homepage opens directly on the discovery markets surface", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByLabel("Market signals").getByText("Trending now")).toBeVisible();
-  await expect(page.getByLabel("Market signals").getByText("Ending soon")).toBeVisible();
+  await expect(
+    page.getByLabel("Market signals").getByRole("button", { name: "Trending now", exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Market signals").getByRole("button", { name: "Ending soon", exact: true })
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {
       name: /Nairobi mobility bill before June 30\?/i
+    }).first()
+  ).toBeVisible();
+});
+
+test("homepage header search and nav filter the board in place", async ({ page }) => {
+  await page.goto("/");
+  const boardGrid = page.getByTestId("market-board-grid");
+
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Economy" }).click();
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /CBK cut rate before Sept 30\?/i
+    }).first()
+  ).toBeVisible();
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /Gor Mahia above AFC Leopards\?/i
+    })
+  ).toHaveCount(0);
+
+  await page.getByPlaceholder("Search markets...").fill("mobility");
+  await expect(page.getByTestId("market-board-empty")).toBeVisible();
+  await page.getByRole("button", { name: "Clear market search" }).click();
+  await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Trending" }).click();
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /Nairobi mobility bill before June 30\?/i
+    }).first()
+  ).toBeVisible();
+});
+
+test("signal strip controls open focused discovery boards and keep active state visible", async ({
+  page
+}) => {
+  await page.goto("/");
+  const boardGrid = page.getByTestId("market-board-grid");
+  const activeShortcut = page
+    .getByLabel("Market signals")
+    .getByRole("button", { name: "Ending soon economy" });
+
+  await activeShortcut.click();
+
+  await expect(page.getByTestId("market-board-focus")).toContainText("Ending soon economy");
+  await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(page.getByText("Viewing ending soon economy board")).toBeVisible();
+  await expect(activeShortcut).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByLabel("Market signals").getByRole("button", { name: "Ending soon", exact: true })
+  ).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    boardGrid.getByRole("link", {
+      name: /KES above 135 per USD on June 30\?/i
     }).first()
   ).toBeVisible();
 });
@@ -39,16 +95,17 @@ test("markets page stays feed-first and shows the expanded launch catalogue", as
 
 test("market board filters in place by category", async ({ page }) => {
   await page.goto("/markets");
+  const boardGrid = page.getByTestId("market-board-grid");
 
-  await page.getByRole("button", { name: "Economy" }).click();
+  await page.getByLabel("Category filters").getByRole("button", { name: "Economy" }).click();
 
   await expect(
-    page.getByRole("link", {
+    boardGrid.getByRole("link", {
       name: /CBK cut rate before Sept 30\?/i
     }).first()
   ).toBeVisible();
   await expect(
-    page.getByRole("link", {
+    boardGrid.getByRole("link", {
       name: /Gor Mahia above AFC Leopards\?/i
     })
   ).toHaveCount(0);

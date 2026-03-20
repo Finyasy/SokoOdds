@@ -80,6 +80,10 @@ Current shipped behavior:
 - shared card surfaces use a calmer ivory modular style with soft borders and glanceable YES/NO actions
 - the launch catalogue has been expanded so the homepage and market board feel populated without drifting away from Kenya-first categories
 - category chips now filter in place on the board, and a compact urgency rail keeps closing markets visible without cluttering the page
+- homepage search and top navigation now drive the same in-place discovery state as the market board
+- signal-strip shortcuts now focus the homepage board in place, and the active shortcut stays visible for focused boards such as `Trending politics` and `Ending soon economy`
+- header microcopy now reflects the active discovery state so the focused board reads like part of one continuous market surface
+- discovery updates now use a softer transition so title, count, and grid changes feel less abrupt
 - market detail uses a first-visit WhatsApp prompt with dismissal persistence
 - the order ticket can open a lightweight account setup flow
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state

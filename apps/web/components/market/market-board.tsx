@@ -1,47 +1,60 @@
-"use client";
-
 import Link from "next/link";
-import { useState } from "react";
-import type { Market, MarketCategory } from "@/lib/mock-data";
+import type { Market } from "@/lib/mock-data";
+import {
+  discoveryCategories,
+  formatDiscoveryFocusLabel,
+  type DiscoveryCategory,
+  type DiscoveryFocus
+} from "@/lib/market-discovery";
 import { formatClosingLabel } from "@/lib/mock-data";
 import { MarketCard } from "./market-card";
 
 type MarketBoardProps = {
   title: string;
   kicker: string;
-  countLabel: string;
-  markets: Market[];
+  countQualifier: string;
+  filteredMarkets: Market[];
+  activeFilter: DiscoveryCategory;
+  activeFocus: DiscoveryFocus;
+  searchQuery: string;
+  isTransitioning: boolean;
+  onFilterChange: (filter: DiscoveryCategory) => void;
+  onClearDiscovery: () => void;
   footerText: string;
   footerHref: string;
   footerLabel: string;
 };
 
-const filters: Array<"All" | MarketCategory> = [
-  "All",
-  "Politics",
-  "Football",
-  "Economy",
-  "Weather",
-  "Culture"
-];
-
 export function MarketBoard({
   title,
   kicker,
-  countLabel,
-  markets,
+  countQualifier,
+  filteredMarkets,
+  activeFilter,
+  activeFocus,
+  searchQuery,
+  isTransitioning,
+  onFilterChange,
+  onClearDiscovery,
   footerText,
   footerHref,
   footerLabel
 }: MarketBoardProps) {
-  const [activeFilter, setActiveFilter] = useState<"All" | MarketCategory>("All");
-
-  const filteredMarkets =
-    activeFilter === "All" ? markets : markets.filter((market) => market.category === activeFilter);
   const urgentMarkets = filteredMarkets.filter((market) => market.status === "Closing Soon").slice(0, 3);
+  const countLabel = `${filteredMarkets.length} ${countQualifier} contract${
+    filteredMarkets.length === 1 ? "" : "s"
+  }`;
+  const hasActiveFocus = activeFocus !== "all";
+  const focusLabel = `${formatDiscoveryFocusLabel(activeFocus)} ${
+    activeFilter === "All" ? "markets" : activeFilter.toLowerCase()
+  }`;
 
   return (
-    <section className="section-stack landing-feed">
+    <section
+      className="section-stack landing-feed"
+      data-transitioning={isTransitioning ? "true" : "false"}
+      aria-busy={isTransitioning}
+    >
       <div className="markets-feed__header">
         <div>
           <span className="section-kicker">{kicker}</span>
@@ -50,14 +63,26 @@ export function MarketBoard({
         <span className="markets-feed__count">{countLabel}</span>
       </div>
 
+      {hasActiveFocus ? (
+        <div className="market-board-focus" data-testid="market-board-focus">
+          <div className="market-board-focus__copy">
+            <span className="market-board-focus__label">Focus</span>
+            <strong>{focusLabel}</strong>
+          </div>
+          <button type="button" className="ghost-button" onClick={onClearDiscovery}>
+            Show all markets
+          </button>
+        </div>
+      ) : null}
+
       <div className="filter-row filter-row--dense" aria-label="Category filters">
-        {filters.map((filter) => (
+        {discoveryCategories.map((filter) => (
           <button
             key={filter}
             type="button"
             className={`filter-chip${activeFilter === filter ? " filter-chip--active" : ""}`}
             aria-pressed={activeFilter === filter}
-            onClick={() => setActiveFilter(filter)}
+            onClick={() => onFilterChange(filter)}
           >
             {filter}
           </button>
@@ -78,11 +103,25 @@ export function MarketBoard({
         </div>
       ) : null}
 
-      <div className="card-grid card-grid--glance card-grid--landing" data-testid="market-board-grid">
-        {filteredMarkets.map((market) => (
-          <MarketCard key={market.slug} market={market} variant="glance" />
-        ))}
-      </div>
+      {filteredMarkets.length ? (
+        <div className="card-grid card-grid--glance card-grid--landing" data-testid="market-board-grid">
+          {filteredMarkets.map((market) => (
+            <MarketCard key={market.slug} market={market} variant="glance" />
+          ))}
+        </div>
+      ) : (
+        <div className="market-board-empty" data-testid="market-board-empty">
+          <strong>No markets match this search yet.</strong>
+          <span>
+            {searchQuery.trim()
+              ? `Nothing in the current board matches “${searchQuery.trim()}”.`
+              : "Try another category or reset the board."}
+          </span>
+          <button type="button" className="ghost-button" onClick={onClearDiscovery}>
+            Show all markets
+          </button>
+        </div>
+      )}
 
       <div className="landing-feed__footer">
         <span>{footerText}</span>
