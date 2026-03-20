@@ -127,3 +127,42 @@ export function formatDiscoveryFocusLabel(focus: DiscoveryFocus) {
 
   return "All";
 }
+
+export function formatDiscoveryBoardScope(
+  category: DiscoveryCategory,
+  focus: DiscoveryFocus = "all"
+) {
+  if (focus !== "all") {
+    const focusLabel = formatDiscoveryFocusLabel(focus).toLowerCase();
+    if (category === "All") {
+      return `${focusLabel} markets`;
+    }
+
+    return `${focusLabel} ${category.toLowerCase()} board`;
+  }
+
+  if (category !== "All") {
+    return `${category.toLowerCase()} board`;
+  }
+
+  return "the market board";
+}
+
+export function formatDiscoverySearchPlaceholder(
+  category: DiscoveryCategory,
+  focus: DiscoveryFocus = "all"
+) {
+  if (focus === "all" && category === "All") {
+    return "Search markets...";
+  }
+
+  if (focus === "all") {
+    return `Search ${category.toLowerCase()} markets...`;
+  }
+
+  if (category === "All") {
+    return `Search ${formatDiscoveryFocusLabel(focus).toLowerCase()} markets...`;
+  }
+
+  return `Search ${formatDiscoveryFocusLabel(focus).toLowerCase()} ${category.toLowerCase()}...`;
+}

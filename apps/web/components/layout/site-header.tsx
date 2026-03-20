@@ -8,7 +8,9 @@ import { AccountAccessButton } from "@/components/onboarding/account-access-butt
 import {
   buildDiscoveryHref,
   discoveryNavItems,
+  formatDiscoveryBoardScope,
   formatDiscoveryFocusLabel,
+  formatDiscoverySearchPlaceholder,
   type DiscoveryCategory,
   type DiscoveryFocus
 } from "@/lib/market-discovery";
@@ -39,11 +41,14 @@ export function SiteHeader({
   const currentSearchValue = searchValue ?? localSearchValue;
   const currentCategory = activeMarketCategory ?? localCategory;
   const trimmedSearchValue = currentSearchValue.trim();
+  const searchPlaceholder = formatDiscoverySearchPlaceholder(currentCategory, activeMarketFocus);
 
   function formatHeaderContext() {
     if (trimmedSearchValue) {
-      const scopeLabel = currentCategory === "All" ? "the board" : `${currentCategory.toLowerCase()} board`;
-      return `Searching “${trimmedSearchValue}” in ${scopeLabel}`;
+      return `Searching “${trimmedSearchValue}” in ${formatDiscoveryBoardScope(
+        currentCategory,
+        activeMarketFocus
+      )}`;
     }
 
     if (activeMarketFocus !== "all") {
@@ -112,7 +117,8 @@ export function SiteHeader({
             type="text"
             value={currentSearchValue}
             onChange={(event) => updateSearch(event.target.value)}
-            placeholder="Search markets..."
+            aria-label="Market search input"
+            placeholder={searchPlaceholder}
           />
           {currentSearchValue ? (
             <button

@@ -83,6 +83,7 @@ Current shipped behavior:
 - homepage search and top navigation now drive the same in-place discovery state as the market board
 - signal-strip shortcuts now focus the homepage board in place, and the active shortcut stays visible for focused boards such as `Trending politics` and `Ending soon economy`
 - header microcopy now reflects the active discovery state so the focused board reads like part of one continuous market surface
+- search placeholder and empty-state copy now inherit the active board context, reducing generic copy on focused discovery flows
 - discovery updates now use a softer transition so title, count, and grid changes feel less abrupt
 - market detail uses a first-visit WhatsApp prompt with dismissal persistence
 - the order ticket can open a lightweight account setup flow

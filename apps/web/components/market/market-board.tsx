@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Market } from "@/lib/mock-data";
 import {
   discoveryCategories,
+  formatDiscoveryBoardScope,
   formatDiscoveryFocusLabel,
   type DiscoveryCategory,
   type DiscoveryFocus
@@ -48,6 +49,8 @@ export function MarketBoard({
   const focusLabel = `${formatDiscoveryFocusLabel(activeFocus)} ${
     activeFilter === "All" ? "markets" : activeFilter.toLowerCase()
   }`;
+  const boardScope = formatDiscoveryBoardScope(activeFilter, activeFocus);
+  const trimmedSearchQuery = searchQuery.trim();
 
   return (
     <section
@@ -111,11 +114,15 @@ export function MarketBoard({
         </div>
       ) : (
         <div className="market-board-empty" data-testid="market-board-empty">
-          <strong>No markets match this search yet.</strong>
+          <strong>
+            {trimmedSearchQuery
+              ? `No matching contracts in ${boardScope}.`
+              : `No live contracts in ${boardScope} yet.`}
+          </strong>
           <span>
-            {searchQuery.trim()
-              ? `Nothing in the current board matches “${searchQuery.trim()}”.`
-              : "Try another category or reset the board."}
+            {trimmedSearchQuery
+              ? `Nothing in ${boardScope} matches “${trimmedSearchQuery}”. Try another term or reset the board.`
+              : `Try another category or reset the board to bring back the broader market feed.`}
           </span>
           <button type="button" className="ghost-button" onClick={onClearDiscovery}>
             Show all markets
