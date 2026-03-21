@@ -98,13 +98,14 @@ Current shipped behavior:
 - verified wallets can now initiate a first withdrawal request, move the amount into reserved funds, and complete a small B2C-style payout path in stub mode
 - the wallet sheet now exposes a compact activity rail for verification credits, top-ups, and withdrawals so users can see recent money movement without leaving the market flow
 - the wallet sheet now supports a first lightweight KYC submission step, and the API includes admin review endpoints plus a feature-flagged order gate for approved KYC
+- the web app now includes a minimal `/admin/kyc` review board backed by the same account session flow, so allowlisted admins can approve or reject KYC profiles without leaving the product UI
 
 Still pending in later sprints:
 
 - full JWT auth and refresh flows
 - realtime WebSocket trading surfaces
 - withdrawal and full payout Daraja payment flows
-- KYC document collection and review
+- richer KYC document collection, evidence handling, and support tooling
 
 ## Sprint 0: Inception and Controls
 

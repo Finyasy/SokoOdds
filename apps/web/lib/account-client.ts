@@ -99,6 +99,21 @@ export type KycSubmissionResponse = {
   profile: KycProfileResponse;
 };
 
+export type AdminKycQueueItem = {
+  userId: string;
+  phone: string;
+  status: string;
+  legalName: string;
+  nationalIdNumberMasked: string;
+  documentType: string;
+  submittedAt: string;
+  rejectionReason: string | null;
+};
+
+export type AdminKycQueueResponse = {
+  items: AdminKycQueueItem[];
+};
+
 type AccountApiErrorShape = {
   detail?: string;
   error?: string;
@@ -281,6 +296,43 @@ export async function submitKycProfile(input: {
   const payload = await readJson<KycSubmissionResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.account || !payload.profile) {
     throw new Error(getErrorMessage(payload, "Could not submit the KYC profile."));
+  }
+
+  return payload;
+}
+
+export async function fetchAdminKycQueue(status = "pending"): Promise<AdminKycQueueResponse> {
+  const response = await fetch(`/api/account/admin/kyc?status=${encodeURIComponent(status)}`, {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<AdminKycQueueResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload || !Array.isArray(payload.items)) {
+    throw new Error(getErrorMessage(payload, "Could not load the KYC queue."));
+  }
+
+  return payload;
+}
+
+export async function reviewAdminKycProfile(input: {
+  userId: string;
+  decision: "approved" | "rejected";
+  rejectionReason?: string;
+}): Promise<KycSubmissionResponse> {
+  const response = await fetch(`/api/account/admin/kyc/${input.userId}/review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      decision: input.decision,
+      rejectionReason: input.rejectionReason ?? null
+    })
+  });
+
+  const payload = await readJson<KycSubmissionResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account || !payload.profile) {
+    throw new Error(getErrorMessage(payload, "Could not review the KYC profile."));
   }
 
   return payload;

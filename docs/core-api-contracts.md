@@ -198,6 +198,8 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 - rejection moves both the profile and account `kycStatus` to `rejected`
 - rejected reviews must include a reason
 - order placement only enforces `approved` KYC when `REQUIRE_APPROVED_KYC_FOR_ORDERS=true`
+- the current web admin surface proxies these endpoints through same-origin routes at `/api/account/admin/kyc` and `/api/account/admin/kyc/{user_id}/review`
+- the current product review page for this flow is `/admin/kyc`
 
 ### M-Pesa Wallet Top-Up Endpoint
 

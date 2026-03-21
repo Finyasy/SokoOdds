@@ -300,3 +300,58 @@ test("a funded wallet can withdraw KES 200 back to M-Pesa from the wallet sheet"
   await page.getByRole("button", { name: "Back to market" }).click();
   await expect(page.getByTestId("account-wallet-button")).toContainText("Ksh 305");
 });
+
+test("an allowlisted admin can approve a pending KYC profile from the web review queue", async ({
+  page
+}) => {
+  const applicantPhone = buildUniquePhone();
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByLabel("First name").fill("Bryan");
+  await page.getByLabel("M-Pesa number").fill(applicantPhone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+
+  await page.getByLabel("Legal name").fill("Bryan Bosire");
+  await page.getByLabel("National ID number").fill("12345678");
+  await page.getByLabel("Date of birth").fill("1998-04-13");
+  await page.getByLabel("Document link or reference").fill("https://example.com/id.pdf");
+  await page.getByRole("button", { name: "Submit KYC for review" }).click();
+  await expect(page.getByTestId("kyc-pending-status")).toBeVisible({
+    timeout: 5000
+  });
+
+  await page.context().clearCookies();
+  await page.addInitScript(() => {
+    window.localStorage.clear();
+  });
+
+  await page.goto("/admin/kyc");
+
+  await expect(page.getByTestId("admin-kyc-signin-required")).toBeVisible();
+  await page.getByRole("button", { name: "Sign in as admin" }).click();
+  await page.getByLabel("First name").fill("Admin");
+  await page.getByLabel("M-Pesa number").fill("0712345678");
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Skip for now" }).click();
+
+  await expect(page.getByTestId("admin-kyc-queue")).toContainText("Bryan Bosire", {
+    timeout: 5000
+  });
+  const applicantCard = page
+    .getByTestId("admin-kyc-item")
+    .filter({ hasText: applicantPhone })
+    .first();
+  await expect(applicantCard).toContainText("Bryan Bosire");
+  await applicantCard.getByRole("button", { name: "Approve" }).click();
+
+  await expect(page.getByTestId("admin-kyc-queue")).not.toContainText(applicantPhone, {
+    timeout: 5000
+  });
+});
