@@ -37,6 +37,7 @@ export default async function MarketsPage({ searchParams }: MarketsPageProps) {
         initialSearchQuery={initialSearchQuery}
         showSignalStrip
         signalStripTone="catalog"
+        syncDiscoveryToUrl
       />
       <SiteFooter />
     </>

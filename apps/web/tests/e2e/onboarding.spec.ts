@@ -108,6 +108,7 @@ test("markets page stays feed-first and shows the expanded launch catalogue", as
 test("market board filters in place by category", async ({ page }) => {
   await page.goto("/markets");
   const boardGrid = page.getByTestId("market-board-grid");
+  const searchInput = page.getByLabel("Market search input");
 
   await page.getByLabel("Category filters").getByRole("button", { name: "Economy" }).click();
 
@@ -121,13 +122,18 @@ test("market board filters in place by category", async ({ page }) => {
       name: /Gor Mahia above AFC Leopards\?/i
     })
   ).toHaveCount(0);
+  await expect(page).toHaveURL(/\/markets\?category=Economy$/);
 
   await page.getByLabel("Market signals").getByRole("button", { name: "Ending soon economy" }).click();
 
   await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
-  await expect(
-    page.getByLabel("Market search input")
-  ).toHaveAttribute("placeholder", "Search ending soon economy...");
+  await expect(searchInput).toHaveAttribute("placeholder", "Search ending soon economy...");
+  await expect(page).toHaveURL(/\/markets\?category=Economy&focus=ending-soon$/);
+
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(searchInput).toHaveAttribute("placeholder", "Search ending soon economy...");
 });
 
 test("market detail opens with the first-time WhatsApp prompt", async ({ page }) => {
