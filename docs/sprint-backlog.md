@@ -92,14 +92,14 @@ Current shipped behavior:
 - the order ticket can open a lightweight account setup flow
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state
 - first-time M-Pesa verification credits `KES 5.00` once and returns the user to a wallet-ready order ticket
-- verified users can now initiate a small M-Pesa top-up and see refreshed wallet balance without leaving the market flow
+- verified users can now initiate a small M-Pesa top-up through a real deposit record and callback lifecycle while keeping the same wallet-sheet UX
 - the market page can submit a first authenticated sample order and reflect available versus reserved balances
 
 Still pending in later sprints:
 
 - full JWT auth and refresh flows
 - realtime WebSocket trading surfaces
-- real Daraja payment flows
+- withdrawal and full payout Daraja payment flows
 - KYC document collection and review
 
 ## Sprint 0: Inception and Controls

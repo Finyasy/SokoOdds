@@ -189,9 +189,11 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 
 ```json
 {
-  "status": "initiated",
+  "status": "pending",
   "depositReference": "mpesa-topup-123",
-  "creditedAmountKes": "500.00",
+  "requestedAmountKes": "500.00",
+  "checkoutRequestId": "ws_CO_123456789",
+  "customerMessage": "Success. Request accepted for processing.",
   "account": {
     "user": {
       "id": "11111111-1111-1111-1111-111111111111",
@@ -213,8 +215,50 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 
 - the request requires an authenticated session
 - the wallet must already be M-Pesa verified
-- the response returns a refreshed account snapshot so the web app can update balance state immediately
-- this repo currently simulates the first M-Pesa top-up by crediting the wallet and ledger directly while the Daraja flow is still pending
+- the API creates a `deposit` record in `pending` state before any callback-driven wallet credit
+- the response returns a refreshed account snapshot so the web app can keep the same wallet sheet shape while the deposit is still pending
+- in `stub` mode, the repo auto-completes the STK callback for local development
+- in `sandbox` mode, the API initiates a real Daraja STK push and waits for the Safaricom callback before crediting the wallet and ledger
+
+### M-Pesa Wallet Top-Up Status Endpoint
+
+`GET /api/v1/wallet/deposit/{depositReference}`
+
+### M-Pesa Wallet Top-Up Status Response
+
+```json
+{
+  "status": "completed",
+  "depositReference": "mpesa-topup-123",
+  "requestedAmountKes": "500.00",
+  "creditedAmountKes": "500.00",
+  "account": {
+    "user": {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "firstName": "Bryan",
+      "phone": "+254796851024",
+      "mpesaPhone": "+254796851024",
+      "mpesaVerified": true
+    },
+    "wallet": {
+      "currency": "KES",
+      "availableBalanceKes": "505.00",
+      "reservedBalanceKes": "0.00"
+    }
+  }
+}
+```
+
+### Daraja Callback Endpoint
+
+`POST /api/v1/wallet/deposit/callback?token=<callback-token>`
+
+### Daraja Callback Rules
+
+- the callback token must match `DARAJA_CALLBACK_TOKEN`
+- successful callbacks mark the deposit `completed`, credit the wallet once, and append one `MPESA_DEPOSIT` ledger entry
+- repeated callbacks for the same checkout request are safe to replay and must not double-credit the wallet
+- failed callbacks mark the deposit `failed` and leave wallet balances unchanged
 
 ### Session Revocation Endpoint
 

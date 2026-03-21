@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from app.models import Base, LedgerEntry, User, UserSession, Wallet
+from app.models import Base, Deposit, LedgerEntry, User, UserSession, Wallet
 from app.services.account_access import AccountAccessService
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -95,13 +95,19 @@ async def test_wallet_deposit_credits_verified_wallet(async_session: AsyncSessio
         user_id=onboarded.account.user_id,
         amount=Decimal("500.00"),
     )
+    deposit = await async_session.scalar(
+        select(Deposit).where(Deposit.user_id == onboarded.account.user_id)
+    )
     wallet = await async_session.scalar(
         select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
     )
     ledger_count = await async_session.scalar(select(func.count()).select_from(LedgerEntry))
 
-    assert result.status == "initiated"
+    assert result.status == "completed"
+    assert result.requested_amount == Decimal("500.00")
     assert result.credited_amount == Decimal("500.00")
+    assert deposit is not None
+    assert deposit.status == "completed"
     assert wallet is not None
     assert wallet.available_balance == Decimal("505.00")
     assert ledger_count == 2

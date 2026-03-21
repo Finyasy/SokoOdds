@@ -86,9 +86,12 @@ class FakeAccountService:
             "DepositResult",
             (),
             {
-                "status": "initiated",
+                "status": "completed",
                 "deposit_reference": "mpesa-topup-1",
+                "requested_amount": amount,
                 "credited_amount": amount,
+                "checkout_request_id": "ws_CO_123",
+                "customer_message": "M-Pesa prompt sent.",
                 "account": AuthenticatedAccount(
                     user=User(
                         id=user_id,
@@ -115,6 +118,21 @@ class FakeAccountService:
             },
         )()
 
+    async def get_deposit_status(self, *, user_id: str, deposit_reference: str):
+        assert user_id == "user-1"
+        assert deposit_reference == "mpesa-topup-1"
+        return type(
+            "DepositStatus",
+            (),
+            {
+                "status": "completed",
+                "depositReference": deposit_reference,
+                "requestedAmountKes": "500.00",
+                "creditedAmountKes": "500.00",
+                "account": build_funded_authenticated_account().to_snapshot().to_response_model(),
+            },
+        )()
+
 
 def build_authenticated_account() -> AuthenticatedAccount:
     return AuthenticatedAccount(
@@ -129,6 +147,32 @@ def build_authenticated_account() -> AuthenticatedAccount:
             user_id="user-1",
             currency="KES",
             available_balance=Decimal("5.00"),
+            reserved_balance=Decimal("0.00"),
+        ),
+        session=UserSession(
+            id="session-1",
+            user_id="user-1",
+            token_hash="hash",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_seen_at=datetime.now(UTC),
+            revoked_at=None,
+        ),
+    )
+
+
+def build_funded_authenticated_account() -> AuthenticatedAccount:
+    return AuthenticatedAccount(
+        user=User(
+            id="user-1",
+            first_name="Bryan",
+            phone="0796851024",
+            mpesa_phone="0796851024",
+            mpesa_verified_at=datetime.now(UTC),
+        ),
+        wallet=Wallet(
+            user_id="user-1",
+            currency="KES",
+            available_balance=Decimal("505.00"),
             reserved_balance=Decimal("0.00"),
         ),
         session=UserSession(
@@ -197,6 +241,19 @@ def test_wallet_deposit_returns_credit_shape() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "initiated"
+    assert payload["status"] == "completed"
+    assert payload["requestedAmountKes"] == "500.00"
+    assert payload["checkoutRequestId"] == "ws_CO_123"
+    assert payload["account"]["wallet"]["availableBalanceKes"] == "505.00"
+
+
+def test_wallet_deposit_status_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/wallet/deposit/mpesa-topup-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
     assert payload["creditedAmountKes"] == "500.00"
     assert payload["account"]["wallet"]["availableBalanceKes"] == "505.00"

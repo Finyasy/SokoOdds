@@ -12,6 +12,7 @@ import {
 } from "react";
 import {
   createAccountSession,
+  fetchWalletDepositStatus,
   fetchCurrentAccount,
   submitOrder as submitOrderRequest,
   topUpWallet,
@@ -309,18 +310,29 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         setDepositState("sending");
 
         try {
-          const result = await topUpWallet({
+          const initiated = await topUpWallet({
             amountKes: amountKes.toFixed(2)
           });
+          let latestStatus = initiated.status;
+          let latestAccount = initiated.account;
+          let creditedAmountKes = "0.00";
+
+          for (let attempt = 0; attempt < 6 && latestStatus === "pending"; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 350));
+            const status = await fetchWalletDepositStatus(initiated.depositReference);
+            latestStatus = status.status;
+            latestAccount = status.account;
+            creditedAmountKes = status.creditedAmountKes;
+          }
 
           setState((current) => ({
             ...current,
-            ...accountSnapshotToState(result.account)
+            ...accountSnapshotToState(latestAccount)
           }));
-          setDepositState("sent");
+          setDepositState(latestStatus === "completed" ? "sent" : "idle");
 
           return {
-            creditedAmountKes: result.creditedAmountKes
+            creditedAmountKes
           };
         } catch (error) {
           setDepositState("idle");

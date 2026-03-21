@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Annotated
+from hashlib import sha256
+from typing import Annotated, cast
 from uuid import uuid4
 
 from app.core.auth import (
@@ -15,8 +16,14 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.database import get_async_session
-from app.models import LedgerEntry, User, UserSession, Wallet
-from app.schemas.account import AccountSnapshotResponse, AccountUserResponse, WalletResponse
+from app.integrations.daraja import DarajaConfigurationError, daraja_client
+from app.models import Deposit, LedgerEntry, User, UserSession, Wallet
+from app.schemas.account import (
+    AccountSnapshotResponse,
+    AccountUserResponse,
+    WalletDepositStatusResponse,
+    WalletResponse,
+)
 from app.services.order_intake import quantize_money
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
@@ -32,6 +39,15 @@ class AuthenticationError(Exception):
 
 class WalletFundingError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class StkCallback:
+    checkout_request_id: str
+    merchant_request_id: str
+    result_code: int
+    result_desc: str
+    mpesa_receipt_number: str | None
 
 
 @dataclass(frozen=True)
@@ -89,7 +105,10 @@ class WalletVerificationResult:
 class WalletDepositResult:
     status: str
     deposit_reference: str
+    requested_amount: Decimal
     credited_amount: Decimal
+    checkout_request_id: str | None
+    customer_message: str | None
     account: AccountSnapshot
 
 
@@ -247,8 +266,8 @@ class AccountAccessService:
         user_id: str,
         amount: Decimal,
     ) -> WalletDepositResult:
-        amount_to_credit = quantize_money(amount)
-        if amount_to_credit <= Decimal("0.00"):
+        requested_amount = quantize_money(amount)
+        if requested_amount <= Decimal("0.00"):
             raise WalletFundingError("Deposit amount must be greater than zero.")
 
         async with self._transaction():
@@ -258,30 +277,64 @@ class AccountAccessService:
             if user.mpesa_verified_at is None or user.mpesa_phone is None:
                 raise WalletFundingError("Verify your M-Pesa wallet before topping up.")
 
-            wallet = await self._get_or_create_wallet_for_update(user.id)
-            wallet.available_balance = quantize_money(wallet.available_balance + amount_to_credit)
             deposit_reference = f"mpesa-topup-{uuid4()}"
+            try:
+                stk_result = await daraja_client.request_stk_push(
+                    phone=user.mpesa_phone,
+                    amount=f"{requested_amount:.2f}",
+                    account_reference=deposit_reference,
+                )
+            except DarajaConfigurationError as exc:
+                raise WalletFundingError(str(exc)) from exc
+            except Exception as exc:  # pragma: no cover
+                raise WalletFundingError("Could not initiate the M-Pesa prompt.") from exc
 
             self.session.add(
-                LedgerEntry(
-                    id=str(uuid4()),
+                Deposit(
+                    id=deposit_reference,
                     user_id=user.id,
-                    entry_type="MPESA_DEPOSIT",
-                    amount=amount_to_credit,
-                    currency=wallet.currency,
-                    reference_type="deposit",
-                    reference_id=deposit_reference,
-                    available_balance_after=wallet.available_balance,
-                    reserved_balance_after=wallet.reserved_balance,
-                    note=f"Demo M-Pesa top-up credited to {user.mpesa_phone}",
+                    phone=user.mpesa_phone,
+                    amount=requested_amount,
+                    currency="KES",
+                    provider="daraja",
+                    status="pending",
+                    merchant_request_id=stk_result.merchant_request_id,
+                    checkout_request_id=stk_result.checkout_request_id,
+                    customer_message=stk_result.customer_message,
+                    mpesa_receipt_number=None,
+                    result_code=None,
+                    result_desc=None,
+                    callback_received_at=None,
+                    credited_at=None,
                 )
             )
 
-        return WalletDepositResult(
-            status="initiated",
+        if settings.daraja_mode == "stub" and settings.daraja_stub_auto_complete:
+            await self.process_stk_callback(
+                callback_payload=build_stub_callback_payload(
+                    merchant_request_id=stk_result.merchant_request_id,
+                    checkout_request_id=stk_result.checkout_request_id,
+                    amount=requested_amount,
+                    phone=user.mpesa_phone,
+                )
+            )
+
+        deposit = await self.get_deposit_by_reference(
+            user_id=user_id,
             deposit_reference=deposit_reference,
-            credited_amount=amount_to_credit,
-            account=snapshot_from_models(user, wallet),
+        )
+        account = await self._load_account_snapshot(user_id)
+        if deposit is None or account is None:
+            raise WalletFundingError("Could not refresh the wallet after deposit initiation.")
+
+        return WalletDepositResult(
+            status=deposit.status,
+            deposit_reference=deposit_reference,
+            requested_amount=requested_amount,
+            credited_amount=requested_amount if deposit.status == "completed" else Decimal("0.00"),
+            checkout_request_id=deposit.checkout_request_id,
+            customer_message=deposit.customer_message,
+            account=account,
         )
 
     @asynccontextmanager
@@ -324,6 +377,112 @@ class AccountAccessService:
         await self.session.flush()
         return wallet
 
+    async def _load_account_snapshot(self, user_id: str) -> AccountSnapshot | None:
+        user_result = await self.session.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            return None
+
+        wallet_result = await self.session.execute(select(Wallet).where(Wallet.user_id == user.id))
+        wallet = wallet_result.scalar_one_or_none()
+        if wallet is None:
+            wallet = Wallet(
+                user_id=user.id,
+                currency="KES",
+                available_balance=Decimal("0.00"),
+                reserved_balance=Decimal("0.00"),
+            )
+            self.session.add(wallet)
+            await self.session.flush()
+
+        return snapshot_from_models(user, wallet)
+
+    async def get_deposit_by_reference(
+        self,
+        *,
+        user_id: str,
+        deposit_reference: str,
+    ) -> Deposit | None:
+        result = await self.session.execute(
+            select(Deposit).where(Deposit.id == deposit_reference, Deposit.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_deposit_status(
+        self,
+        *,
+        user_id: str,
+        deposit_reference: str,
+    ) -> WalletDepositStatusResponse:
+        deposit = await self.get_deposit_by_reference(
+            user_id=user_id,
+            deposit_reference=deposit_reference,
+        )
+        if deposit is None:
+            raise WalletFundingError("Deposit reference was not found.")
+
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        return WalletDepositStatusResponse(
+            status=deposit.status,
+            depositReference=deposit.id,
+            requestedAmountKes=f"{deposit.amount:.2f}",
+            creditedAmountKes=(
+                f"{deposit.amount if deposit.status == 'completed' else Decimal('0.00'):.2f}"
+            ),
+            account=account.to_response_model(),
+        )
+
+    async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
+        callback = extract_stk_callback(callback_payload)
+        if callback is None:
+            raise WalletFundingError("Callback payload did not contain stk callback data.")
+
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Deposit)
+                .where(Deposit.checkout_request_id == callback.checkout_request_id)
+                .with_for_update()
+            )
+            deposit = result.scalar_one_or_none()
+            if deposit is None:
+                raise WalletFundingError("Deposit callback did not match an existing deposit.")
+
+            deposit.callback_received_at = datetime.now(UTC)
+            deposit.result_code = callback.result_code
+            deposit.result_desc = callback.result_desc
+
+            if callback.result_code != 0:
+                deposit.status = "failed"
+                return
+
+            if deposit.credited_at is not None:
+                deposit.status = "completed"
+                return
+
+            wallet = await self._get_or_create_wallet_for_update(deposit.user_id)
+            wallet.available_balance = quantize_money(wallet.available_balance + deposit.amount)
+            deposit.status = "completed"
+            deposit.credited_at = datetime.now(UTC)
+            deposit.mpesa_receipt_number = callback.mpesa_receipt_number
+
+            self.session.add(
+                LedgerEntry(
+                    id=str(uuid4()),
+                    user_id=deposit.user_id,
+                    entry_type="MPESA_DEPOSIT",
+                    amount=deposit.amount,
+                    currency=wallet.currency,
+                    reference_type="deposit",
+                    reference_id=deposit.id,
+                    available_balance_after=wallet.available_balance,
+                    reserved_balance_after=wallet.reserved_balance,
+                    note=f"M-Pesa deposit confirmed for {deposit.phone}",
+                )
+            )
+
 
 async def get_account_access_service(
     session: AsyncSessionDep,
@@ -355,3 +514,75 @@ async def get_authenticated_account(
             detail="Authentication required.",
         )
     return account
+
+
+def extract_stk_callback(payload: dict[str, object]) -> StkCallback | None:
+    body = payload.get("Body")
+    if not isinstance(body, dict):
+        return None
+
+    body_dict = cast(dict[str, object], body)
+    callback = body_dict.get("stkCallback")
+    if not isinstance(callback, dict):
+        return None
+
+    callback_dict = cast(dict[str, object], callback)
+    metadata = callback_dict.get("CallbackMetadata")
+    receipt_number: str | None = None
+    if isinstance(metadata, dict):
+        metadata_dict = cast(dict[str, object], metadata)
+        items = metadata_dict.get("Item")
+        if isinstance(items, list):
+            items_list = cast(list[object], items)
+            for item in items_list:
+                if not isinstance(item, dict):
+                    continue
+                item_dict = cast(dict[str, object], item)
+                item_name = item_dict.get("Name")
+                item_value = item_dict.get("Value")
+                if item_name == "MpesaReceiptNumber" and isinstance(item_value, str):
+                    receipt_number = item_value
+
+    checkout_request_id = callback_dict.get("CheckoutRequestID")
+    merchant_request_id = callback_dict.get("MerchantRequestID")
+    result_code = callback_dict.get("ResultCode")
+    result_desc = callback_dict.get("ResultDesc")
+    if not isinstance(checkout_request_id, str) or not isinstance(merchant_request_id, str):
+        return None
+    if not isinstance(result_code, int) or not isinstance(result_desc, str):
+        return None
+
+    return StkCallback(
+        checkout_request_id=checkout_request_id,
+        merchant_request_id=merchant_request_id,
+        result_code=result_code,
+        result_desc=result_desc,
+        mpesa_receipt_number=receipt_number,
+    )
+
+
+def build_stub_callback_payload(
+    *,
+    merchant_request_id: str,
+    checkout_request_id: str,
+    amount: Decimal,
+    phone: str,
+) -> dict[str, object]:
+    receipt = f"STUB{sha256(f'{checkout_request_id}:{phone}'.encode()).hexdigest()[:10].upper()}"
+    return {
+        "Body": {
+            "stkCallback": {
+                "MerchantRequestID": merchant_request_id,
+                "CheckoutRequestID": checkout_request_id,
+                "ResultCode": 0,
+                "ResultDesc": "The service request is processed successfully.",
+                "CallbackMetadata": {
+                    "Item": [
+                        {"Name": "Amount", "Value": float(amount)},
+                        {"Name": "MpesaReceiptNumber", "Value": receipt},
+                        {"Name": "PhoneNumber", "Value": phone},
+                    ]
+                },
+            }
+        }
+    }

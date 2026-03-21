@@ -55,5 +55,15 @@ class WalletDepositRequest(BaseModel):
 class WalletDepositResponse(BaseModel):
     status: str
     depositReference: str
+    requestedAmountKes: str
+    checkoutRequestId: str | None = None
+    customerMessage: str | None = None
+    account: AccountSnapshotResponse
+
+
+class WalletDepositStatusResponse(BaseModel):
+    status: str
+    depositReference: str
+    requestedAmountKes: str
     creditedAmountKes: str
     account: AccountSnapshotResponse

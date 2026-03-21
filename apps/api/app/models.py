@@ -15,7 +15,7 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     first_name: Mapped[str] = mapped_column(String(80), nullable=False)
     phone: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, index=True)
     mpesa_phone: Mapped[str | None] = mapped_column(String(16), nullable=True)
@@ -155,4 +155,33 @@ class OutboxEvent(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Deposit(Base):
+    __tablename__ = "deposits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    phone: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="KES", nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="daraja")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    merchant_request_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    checkout_request_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    customer_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mpesa_receipt_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_desc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    callback_received_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    credited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

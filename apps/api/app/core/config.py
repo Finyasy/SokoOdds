@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     demo_user_default_wallet_balance: str = "25000.00"
     auth_session_ttl_hours: int = 720
     mpesa_verification_credit_amount: str = "5.00"
+    daraja_mode: Literal["stub", "sandbox"] = "stub"
+    daraja_consumer_key: str = ""
+    daraja_consumer_secret: str = ""
+    daraja_shortcode: str = ""
+    daraja_passkey: str = ""
+    daraja_callback_base_url: str = "http://localhost:8000"
+    daraja_callback_token: str = "local-daraja-token"
+    daraja_stub_auto_complete: bool = True
     seed_demo_markets_on_startup: bool = False
     log_level: str = "INFO"
 

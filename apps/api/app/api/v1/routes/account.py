@@ -4,12 +4,14 @@ from decimal import Decimal
 from typing import Annotated
 
 from app.core.auth import extract_bearer_token
+from app.core.config import settings
 from app.schemas.account import (
     AuthOnboardRequest,
     AuthOnboardResponse,
     MeResponse,
     WalletDepositRequest,
     WalletDepositResponse,
+    WalletDepositStatusResponse,
     WalletVerifyRequest,
     WalletVerifyResponse,
 )
@@ -21,7 +23,7 @@ from app.services.account_access import (
     get_account_access_service,
     get_authenticated_account,
 )
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 
 router = APIRouter()
 AccountServiceDep = Annotated[AccountAccessService, Depends(get_account_access_service)]
@@ -92,9 +94,50 @@ async def initiate_wallet_deposit(
     return WalletDepositResponse(
         status=result.status,
         depositReference=result.deposit_reference,
-        creditedAmountKes=f"{result.credited_amount:.2f}",
+        requestedAmountKes=f"{result.requested_amount:.2f}",
+        checkoutRequestId=result.checkout_request_id,
+        customerMessage=result.customer_message,
         account=result.account.to_response_model(),
     )
+
+
+@router.get(
+    "/wallet/deposit/{deposit_reference}",
+    status_code=status.HTTP_200_OK,
+    response_model=WalletDepositStatusResponse,
+)
+async def get_wallet_deposit_status(
+    deposit_reference: str,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> WalletDepositStatusResponse:
+    try:
+        return await account_service.get_deposit_status(
+            user_id=account.user.id,
+            deposit_reference=deposit_reference,
+        )
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/wallet/deposit/callback", status_code=status.HTTP_200_OK)
+async def receive_wallet_deposit_callback(
+    payload: dict[str, object],
+    account_service: AccountServiceDep,
+    token: Annotated[str | None, Query()] = None,
+) -> dict[str, str]:
+    if token != settings.daraja_callback_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid callback token.",
+        )
+
+    try:
+        await account_service.process_stk_callback(callback_payload=payload)
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return {"ResultCode": "0", "ResultDesc": "Accepted"}
 
 
 @router.delete("/auth/session", status_code=status.HTTP_204_NO_CONTENT)

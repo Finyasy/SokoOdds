@@ -33,6 +33,16 @@ export type OrderSubmissionResponse = {
 export type WalletDepositResponse = {
   status: string;
   depositReference: string;
+  requestedAmountKes: string;
+  checkoutRequestId: string | null;
+  customerMessage: string | null;
+  account: AccountSnapshot;
+};
+
+export type WalletDepositStatusResponse = {
+  status: string;
+  depositReference: string;
+  requestedAmountKes: string;
   creditedAmountKes: string;
   account: AccountSnapshot;
 };
@@ -135,6 +145,21 @@ export async function topUpWallet(input: { amountKes: string }): Promise<WalletD
   const payload = await readJson<WalletDepositResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.account) {
     throw new Error(getErrorMessage(payload, "Could not initiate the M-Pesa top-up."));
+  }
+
+  return payload;
+}
+
+export async function fetchWalletDepositStatus(
+  depositReference: string
+): Promise<WalletDepositStatusResponse> {
+  const response = await fetch(`/api/account/deposit/${depositReference}`, {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<WalletDepositStatusResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account) {
+    throw new Error(getErrorMessage(payload, "Could not read the deposit status."));
   }
 
   return payload;
