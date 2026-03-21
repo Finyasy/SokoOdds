@@ -39,6 +39,7 @@ Already live in the checked-in app:
 - a thin market-signals strip now surfaces `Trending now` and `Ending soon` above the grid without turning the page back into a hero
 - signal-strip labels and micro-links now focus the homepage board in place instead of kicking users out of discovery
 - active signal-strip shortcuts now stay visible so focused boards such as `Trending politics` and `Ending soon economy` still feel anchored to the landing page
+- homepage discovery now updates the URL as the board changes, so a focused landing-page view can be copied and reopened without losing the in-place feel
 - the `/markets` page now inherits the same signal-strip language in a flatter catalog treatment, so discovery stays consistent without making the catalog feel promotional
 - `/markets` discovery interactions now sync back into the URL, so category and focus views survive reloads and can be shared directly
 - category chips now filter the board in place instead of forcing a route change

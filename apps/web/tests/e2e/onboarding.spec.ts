@@ -79,6 +79,7 @@ test("signal strip controls open focused discovery boards and keep active state 
     "placeholder",
     "Search ending soon economy..."
   );
+  await expect(page).toHaveURL(/\/\?category=Economy&focus=ending-soon$/);
   await expect(activeShortcut).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByLabel("Market signals").getByRole("button", { name: "Ending soon", exact: true })
@@ -88,6 +89,14 @@ test("signal strip controls open focused discovery boards and keep active state 
       name: /KES above 135 per USD on June 30\?/i
     }).first()
   ).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(page.getByLabel("Market search input")).toHaveAttribute(
+    "placeholder",
+    "Search ending soon economy..."
+  );
 });
 
 test("markets page stays feed-first and shows the expanded launch catalogue", async ({ page }) => {

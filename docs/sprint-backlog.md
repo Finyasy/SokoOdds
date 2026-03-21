@@ -82,6 +82,7 @@ Current shipped behavior:
 - category chips now filter in place on the board, and a compact urgency rail keeps closing markets visible without cluttering the page
 - homepage search and top navigation now drive the same in-place discovery state as the market board
 - signal-strip shortcuts now focus the homepage board in place, and the active shortcut stays visible for focused boards such as `Trending politics` and `Ending soon economy`
+- homepage discovery state now also syncs to URL params, so filtered landing-page views can be copied, reloaded, and shared
 - header microcopy now reflects the active discovery state so the focused board reads like part of one continuous market surface
 - search placeholder and empty-state copy now inherit the active board context, reducing generic copy on focused discovery flows
 - the `/markets` catalog now inherits the same signal-strip language in a quieter, flatter variant so discovery feels consistent across both entry surfaces

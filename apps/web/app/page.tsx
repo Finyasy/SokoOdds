@@ -37,6 +37,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         initialFocus={initialFocus}
         initialSearchQuery={initialSearchQuery}
         showSignalStrip
+        syncDiscoveryToUrl
       />
       <SiteFooter />
     </>
