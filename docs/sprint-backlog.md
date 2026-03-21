@@ -97,6 +97,7 @@ Current shipped behavior:
 - the market page can submit a first authenticated sample order and reflect available versus reserved balances
 - verified wallets can now initiate a first withdrawal request, move the amount into reserved funds, and complete a small B2C-style payout path in stub mode
 - the wallet sheet now exposes a compact activity rail for verification credits, top-ups, and withdrawals so users can see recent money movement without leaving the market flow
+- the wallet sheet now supports a first lightweight KYC submission step, and the API includes admin review endpoints plus a feature-flagged order gate for approved KYC
 
 Still pending in later sprints:
 

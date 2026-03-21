@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from app.models import Base, Deposit, LedgerEntry, User, UserSession, Wallet, Withdrawal
+from app.models import Base, Deposit, KycProfile, LedgerEntry, User, UserSession, Wallet, Withdrawal
 from app.services.account_access import AccountAccessService
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -217,3 +217,66 @@ async def test_wallet_transactions_feed_includes_verification_deposit_and_withdr
     assert result.items[0].status == "completed"
     assert result.items[1].amountKes == "500.00"
     assert result.items[2].title == "M-Pesa wallet verified"
+
+
+@pytest.mark.asyncio
+async def test_kyc_submission_marks_user_pending(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    result = await service.submit_kyc_profile(
+        user_id=onboarded.account.user_id,
+        legal_name="Amina Wanjiru",
+        national_id_number="12345678",
+        date_of_birth="1996-08-14",
+        document_reference="https://example.com/id.pdf",
+    )
+
+    user = await async_session.scalar(select(User).where(User.id == onboarded.account.user_id))
+    profile = await async_session.scalar(
+        select(KycProfile).where(KycProfile.user_id == onboarded.account.user_id)
+    )
+
+    assert result.status == "pending"
+    assert result.account.user.kycStatus == "pending"
+    assert user is not None and user.kyc_status == "pending"
+    assert profile is not None and profile.status == "pending"
+    assert result.profile.nationalIdNumberMasked == "****5678"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_approve_pending_kyc(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    admin = await service.onboard_account(first_name="Admin", phone="0712 345 678")
+    applicant = await service.onboard_account(first_name="Amina", phone="0796 000 000")
+    await service.submit_kyc_profile(
+        user_id=applicant.account.user_id,
+        legal_name="Amina Wanjiru",
+        national_id_number="12345678",
+        date_of_birth="1996-08-14",
+        document_reference="https://example.com/id.pdf",
+    )
+
+    queue = await service.list_kyc_queue(
+        admin_user_id=admin.account.user_id,
+        status_filter="pending",
+    )
+    result = await service.review_kyc_profile(
+        admin_user_id=admin.account.user_id,
+        target_user_id=applicant.account.user_id,
+        decision="approved",
+        rejection_reason=None,
+    )
+
+    assert queue.items[0].status == "pending"
+    assert result.status == "approved"
+    assert result.account.user.kycStatus == "approved"

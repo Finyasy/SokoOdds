@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     daraja_b2c_timeout_base_url: str = "http://localhost:8000"
     withdrawal_review_threshold_kes: str = "2500.00"
     withdrawal_daily_limit_kes: str = "5000.00"
+    require_approved_kyc_for_orders: bool = False
+    admin_phone_allowlist: str = "0712345678"
     seed_demo_markets_on_startup: bool = False
     log_level: str = "INFO"
 
@@ -50,6 +52,10 @@ class Settings(BaseSettings):
     @property
     def daraja_callback_trusted_proxy_ip_list(self) -> tuple[str, ...]:
         return parse_csv_list(self.daraja_callback_trusted_proxy_ips)
+
+    @property
+    def admin_phone_allowlist_values(self) -> tuple[str, ...]:
+        return parse_csv_list(self.admin_phone_allowlist)
 
 
 settings = Settings()

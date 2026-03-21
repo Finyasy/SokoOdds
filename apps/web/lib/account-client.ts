@@ -5,6 +5,7 @@ export type AccountSnapshot = {
     phone: string;
     mpesaPhone: string | null;
     mpesaVerified: boolean;
+    kycStatus: string;
   };
   wallet: {
     currency: string;
@@ -78,6 +79,24 @@ export type WalletTransactionItem = {
 export type WalletTransactionsResponse = {
   account: AccountSnapshot;
   items: WalletTransactionItem[];
+};
+
+export type KycProfileResponse = {
+  status: string;
+  legalName: string;
+  nationalIdNumberMasked: string;
+  dateOfBirth: string;
+  documentType: string;
+  documentReference: string;
+  submittedAt: string;
+  reviewedAt: string | null;
+  rejectionReason: string | null;
+};
+
+export type KycSubmissionResponse = {
+  status: string;
+  account: AccountSnapshot;
+  profile: KycProfileResponse;
 };
 
 type AccountApiErrorShape = {
@@ -240,6 +259,28 @@ export async function fetchWalletTransactions(): Promise<WalletTransactionsRespo
   const payload = await readJson<WalletTransactionsResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.account || !Array.isArray(payload.items)) {
     throw new Error(getErrorMessage(payload, "Could not read wallet activity."));
+  }
+
+  return payload;
+}
+
+export async function submitKycProfile(input: {
+  legalName: string;
+  nationalIdNumber: string;
+  dateOfBirth: string;
+  documentReference: string;
+}): Promise<KycSubmissionResponse> {
+  const response = await fetch("/api/account/kyc", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+
+  const payload = await readJson<KycSubmissionResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account || !payload.profile) {
+    throw new Error(getErrorMessage(payload, "Could not submit the KYC profile."));
   }
 
   return payload;

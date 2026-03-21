@@ -11,6 +11,7 @@ class AccountUserResponse(BaseModel):
     phone: str
     mpesaPhone: str | None = None
     mpesaVerified: bool
+    kycStatus: str
 
 
 class WalletResponse(BaseModel):
@@ -104,3 +105,48 @@ class WalletTransactionItemResponse(BaseModel):
 class WalletTransactionsResponse(BaseModel):
     account: AccountSnapshotResponse
     items: list[WalletTransactionItemResponse]
+
+
+class KycProfileRequest(BaseModel):
+    legalName: str = Field(min_length=4, max_length=120)
+    nationalIdNumber: str = Field(min_length=6, max_length=32)
+    dateOfBirth: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    documentReference: str = Field(min_length=4, max_length=255)
+
+
+class KycProfileResponse(BaseModel):
+    status: str
+    legalName: str
+    nationalIdNumberMasked: str
+    dateOfBirth: str
+    documentType: str
+    documentReference: str
+    submittedAt: str
+    reviewedAt: str | None = None
+    rejectionReason: str | None = None
+
+
+class KycSubmissionResponse(BaseModel):
+    status: str
+    account: AccountSnapshotResponse
+    profile: KycProfileResponse
+
+
+class AdminKycReviewRequest(BaseModel):
+    decision: str = Field(pattern=r"^(approved|rejected)$")
+    rejectionReason: str | None = Field(default=None, max_length=255)
+
+
+class AdminKycQueueItemResponse(BaseModel):
+    userId: str
+    phone: str
+    status: str
+    legalName: str
+    nationalIdNumberMasked: str
+    documentType: str
+    submittedAt: str
+    rejectionReason: str | None = None
+
+
+class AdminKycQueueResponse(BaseModel):
+    items: list[AdminKycQueueItemResponse]

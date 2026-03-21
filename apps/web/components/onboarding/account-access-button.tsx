@@ -21,6 +21,13 @@ export function AccountAccessButton() {
   }
 
   if (state.isSignedIn && state.mpesaVerified) {
+    const setupLabel =
+      state.kycStatus === "approved"
+        ? "M-Pesa ready · KYC approved"
+        : state.kycStatus === "pending"
+          ? "M-Pesa ready · KYC pending"
+          : "M-Pesa ready";
+
     return (
       <button
         type="button"
@@ -28,7 +35,7 @@ export function AccountAccessButton() {
         onClick={openVerificationSheet}
         data-testid="account-wallet-button"
       >
-        <span className="wallet-button__label">M-Pesa ready</span>
+        <span className="wallet-button__label">{setupLabel}</span>
         <strong>{formatKes(state.walletBalanceKes)}</strong>
       </button>
     );

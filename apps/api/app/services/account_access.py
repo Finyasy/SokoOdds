@@ -17,10 +17,14 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.database import get_async_session
 from app.integrations.daraja import B2CPayoutResult, DarajaConfigurationError, daraja_client
-from app.models import Deposit, LedgerEntry, User, UserSession, Wallet, Withdrawal
+from app.models import Deposit, KycProfile, LedgerEntry, User, UserSession, Wallet, Withdrawal
 from app.schemas.account import (
     AccountSnapshotResponse,
     AccountUserResponse,
+    AdminKycQueueItemResponse,
+    AdminKycQueueResponse,
+    KycProfileResponse,
+    KycSubmissionResponse,
     WalletDepositStatusResponse,
     WalletResponse,
     WalletTransactionItemResponse,
@@ -69,6 +73,7 @@ class AccountSnapshot:
     phone: str
     mpesa_phone: str | None
     mpesa_verified: bool
+    kyc_status: str
     currency: str
     available_balance: Decimal
     reserved_balance: Decimal
@@ -81,6 +86,7 @@ class AccountSnapshot:
                 phone=self.phone,
                 mpesaPhone=self.mpesa_phone,
                 mpesaVerified=self.mpesa_verified,
+                kycStatus=self.kyc_status,
             ),
             wallet=WalletResponse(
                 currency=self.currency,
@@ -157,6 +163,32 @@ class WalletTransactionItem:
         )
 
 
+@dataclass(frozen=True)
+class KycProfileSnapshot:
+    status: str
+    legal_name: str
+    national_id_number_masked: str
+    date_of_birth: str
+    document_type: str
+    document_reference: str
+    submitted_at: datetime
+    reviewed_at: datetime | None
+    rejection_reason: str | None
+
+    def to_response_model(self) -> KycProfileResponse:
+        return KycProfileResponse(
+            status=self.status,
+            legalName=self.legal_name,
+            nationalIdNumberMasked=self.national_id_number_masked,
+            dateOfBirth=self.date_of_birth,
+            documentType=self.document_type,
+            documentReference=self.document_reference,
+            submittedAt=self.submitted_at.isoformat(),
+            reviewedAt=self.reviewed_at.isoformat() if self.reviewed_at is not None else None,
+            rejectionReason=self.rejection_reason,
+        )
+
+
 def snapshot_from_models(user: User, wallet: Wallet) -> AccountSnapshot:
     return AccountSnapshot(
         user_id=user.id,
@@ -164,6 +196,7 @@ def snapshot_from_models(user: User, wallet: Wallet) -> AccountSnapshot:
         phone=user.phone,
         mpesa_phone=user.mpesa_phone,
         mpesa_verified=user.mpesa_verified_at is not None,
+        kyc_status=user.kyc_status,
         currency=wallet.currency,
         available_balance=quantize_money(wallet.available_balance),
         reserved_balance=quantize_money(wallet.reserved_balance),
@@ -181,6 +214,9 @@ class AccountAccessService:
         self.session = session
         self.session_ttl = session_ttl
         self.verification_credit_amount = quantize_money(verification_credit_amount)
+        self.admin_phone_allowlist = {
+            normalize_phone(phone) for phone in settings.admin_phone_allowlist_values
+        }
         self.withdrawal_review_threshold = quantize_money(
             Decimal(settings.withdrawal_review_threshold_kes)
         )
@@ -199,6 +235,7 @@ class AccountAccessService:
                     first_name=first_name.strip(),
                     phone=normalized_phone,
                     mpesa_phone=None,
+                    kyc_status="not_started",
                     mpesa_verified_at=None,
                 )
                 self.session.add(user)
@@ -573,6 +610,24 @@ class AccountAccessService:
 
         return snapshot_from_models(user, wallet)
 
+    async def _get_kyc_profile(self, user_id: str) -> KycProfile | None:
+        result = await self.session.execute(select(KycProfile).where(KycProfile.user_id == user_id))
+        return result.scalar_one_or_none()
+
+    async def _get_kyc_profile_for_update(self, user_id: str) -> KycProfile | None:
+        result = await self.session.execute(
+            select(KycProfile).where(KycProfile.user_id == user_id).with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def _assert_admin_user(self, user_id: str) -> None:
+        result = await self.session.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise AuthenticationError("Authenticated user was not found.")
+        if normalize_phone(user.phone) not in self.admin_phone_allowlist:
+            raise AuthenticationError("Admin access is required.")
+
     async def get_deposit_by_reference(
         self,
         *,
@@ -693,6 +748,143 @@ class AccountAccessService:
         return WalletTransactionsResponse(
             account=account.to_response_model(),
             items=[item.to_response_model() for item in items[:10]],
+        )
+
+    async def get_kyc_profile(self, *, user_id: str) -> KycSubmissionResponse | None:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        profile = await self._get_kyc_profile(user_id)
+        if profile is None:
+            return None
+
+        return KycSubmissionResponse(
+            status=profile.status,
+            account=account.to_response_model(),
+            profile=self._build_kyc_profile_snapshot(profile).to_response_model(),
+        )
+
+    async def submit_kyc_profile(
+        self,
+        *,
+        user_id: str,
+        legal_name: str,
+        national_id_number: str,
+        date_of_birth: str,
+        document_reference: str,
+    ) -> KycSubmissionResponse:
+        async with self._transaction():
+            user = await self._get_user_for_update(user_id)
+            if user is None:
+                raise AuthenticationError("Authenticated user was not found.")
+
+            profile = await self._get_kyc_profile_for_update(user_id)
+            normalized_id = national_id_number.strip().replace(" ", "")
+            submitted_at = datetime.now(UTC)
+
+            if profile is None:
+                profile = KycProfile(
+                    user_id=user.id,
+                    status="pending",
+                    legal_name=legal_name.strip(),
+                    national_id_number=normalized_id,
+                    date_of_birth=date_of_birth,
+                    document_type="national_id",
+                    document_reference=document_reference.strip(),
+                    submitted_at=submitted_at,
+                    reviewed_at=None,
+                    reviewed_by_user_id=None,
+                    rejection_reason=None,
+                )
+                self.session.add(profile)
+            else:
+                profile.status = "pending"
+                profile.legal_name = legal_name.strip()
+                profile.national_id_number = normalized_id
+                profile.date_of_birth = date_of_birth
+                profile.document_type = "national_id"
+                profile.document_reference = document_reference.strip()
+                profile.submitted_at = submitted_at
+                profile.reviewed_at = None
+                profile.reviewed_by_user_id = None
+                profile.rejection_reason = None
+
+            user.kyc_status = "pending"
+            wallet = await self._get_or_create_wallet_for_update(user.id)
+
+        refreshed_account = snapshot_from_models(user, wallet)
+        return KycSubmissionResponse(
+            status=profile.status,
+            account=refreshed_account.to_response_model(),
+            profile=self._build_kyc_profile_snapshot(profile).to_response_model(),
+        )
+
+    async def list_kyc_queue(
+        self,
+        *,
+        admin_user_id: str,
+        status_filter: str | None,
+    ) -> AdminKycQueueResponse:
+        await self._assert_admin_user(admin_user_id)
+
+        query = select(KycProfile, User).join(User, User.id == KycProfile.user_id)
+        if status_filter is not None:
+            query = query.where(KycProfile.status == status_filter)
+        query = query.order_by(desc(KycProfile.submitted_at))
+
+        result = await self.session.execute(query)
+        items = [
+            AdminKycQueueItemResponse(
+                userId=user.id,
+                phone=user.phone,
+                status=profile.status,
+                legalName=profile.legal_name,
+                nationalIdNumberMasked=mask_national_id(profile.national_id_number),
+                documentType=profile.document_type,
+                submittedAt=profile.submitted_at.isoformat(),
+                rejectionReason=profile.rejection_reason,
+            )
+            for profile, user in result.all()
+        ]
+        return AdminKycQueueResponse(items=items)
+
+    async def review_kyc_profile(
+        self,
+        *,
+        admin_user_id: str,
+        target_user_id: str,
+        decision: str,
+        rejection_reason: str | None,
+    ) -> KycSubmissionResponse:
+        await self._assert_admin_user(admin_user_id)
+        if decision == "rejected" and not rejection_reason:
+            raise WalletFundingError("Rejection reason is required when rejecting KYC.")
+
+        async with self._transaction():
+            admin_user = await self._get_user_for_update(admin_user_id)
+            if admin_user is None:
+                raise AuthenticationError("Authenticated user was not found.")
+
+            user = await self._get_user_for_update(target_user_id)
+            if user is None:
+                raise WalletFundingError("KYC target user was not found.")
+
+            profile = await self._get_kyc_profile_for_update(target_user_id)
+            if profile is None:
+                raise WalletFundingError("KYC profile was not found.")
+
+            profile.status = decision
+            profile.reviewed_at = datetime.now(UTC)
+            profile.reviewed_by_user_id = admin_user.id
+            profile.rejection_reason = rejection_reason.strip() if rejection_reason else None
+            user.kyc_status = decision
+            wallet = await self._get_or_create_wallet_for_update(user.id)
+
+        return KycSubmissionResponse(
+            status=profile.status,
+            account=snapshot_from_models(user, wallet).to_response_model(),
+            profile=self._build_kyc_profile_snapshot(profile).to_response_model(),
         )
 
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
@@ -878,6 +1070,19 @@ class AccountAccessService:
             created_at=withdrawal.created_at,
         )
 
+    def _build_kyc_profile_snapshot(self, profile: KycProfile) -> KycProfileSnapshot:
+        return KycProfileSnapshot(
+            status=profile.status,
+            legal_name=profile.legal_name,
+            national_id_number_masked=mask_national_id(profile.national_id_number),
+            date_of_birth=profile.date_of_birth,
+            document_type=profile.document_type,
+            document_reference=profile.document_reference,
+            submitted_at=profile.submitted_at,
+            reviewed_at=profile.reviewed_at,
+            rejection_reason=profile.rejection_reason,
+        )
+
     def _activity_priority(self, kind: str) -> int:
         priorities = {
             "withdrawal": 3,
@@ -885,6 +1090,12 @@ class AccountAccessService:
             "verification": 1,
         }
         return priorities.get(kind, 0)
+
+
+def mask_national_id(value: str) -> str:
+    if len(value) <= 4:
+        return value
+    return f"{'*' * max(len(value) - 4, 0)}{value[-4:]}"
 
 
 async def get_account_access_service(

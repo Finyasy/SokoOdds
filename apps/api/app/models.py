@@ -19,6 +19,7 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(String(80), nullable=False)
     phone: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, index=True)
     mpesa_phone: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    kyc_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_started")
     mpesa_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -213,6 +214,30 @@ class Withdrawal(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class KycProfile(Base):
+    __tablename__ = "kyc_profiles"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    legal_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    national_id_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    date_of_birth: Mapped[str] = mapped_column(String(10), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(32), nullable=False, default="national_id")
+    document_reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+from app.core.config import settings
 from app.core.engine import EngineHealth, ensure_engine_ready_for_orders
 from app.schemas.orders import OrderCreateRequest
 from app.services.account_access import AuthenticatedAccount, get_optional_authenticated_account
@@ -36,6 +37,15 @@ async def create_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Verify your M-Pesa wallet before placing an order.",
+        )
+    if (
+        authenticated_account is not None
+        and settings.require_approved_kyc_for_orders
+        and authenticated_account.user.kyc_status != "approved"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Approved KYC is required before placing an order.",
         )
 
     user_id = authenticated_account.user.id if authenticated_account is not None else "demo-user"

@@ -174,6 +174,31 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 - repeat verification attempts for an already verified account return `status = "already_verified"` and do not double-credit the wallet
 - the verified M-Pesa phone becomes part of the user account snapshot
 
+### KYC Submission Endpoint
+
+`POST /api/v1/kyc/submit`
+
+### KYC Submission Rules
+
+- the request requires an authenticated session
+- the current lightweight KYC shape collects legal name, national ID number, date of birth, and a document reference
+- submission creates or refreshes one `kyc_profile` row per user
+- submission moves the account `kycStatus` to `pending`
+- the wallet sheet can keep trading and wallet setup visible while KYC is pending unless stricter gating is enabled
+
+### KYC Review Endpoints
+
+- `GET /api/v1/admin/kyc/profiles?status=pending`
+- `POST /api/v1/admin/kyc/profiles/{user_id}/review`
+
+### KYC Review Rules
+
+- admin review access is currently controlled by the configured phone allowlist
+- approval moves both the profile and account `kycStatus` to `approved`
+- rejection moves both the profile and account `kycStatus` to `rejected`
+- rejected reviews must include a reason
+- order placement only enforces `approved` KYC when `REQUIRE_APPROVED_KYC_FOR_ORDERS=true`
+
 ### M-Pesa Wallet Top-Up Endpoint
 
 `POST /api/v1/wallet/deposit`
@@ -323,6 +348,7 @@ The Next.js app uses same-origin route handlers as a thin bridge in front of the
 - `DELETE /api/account/session`
 - `GET /api/account/me`
 - `POST /api/account/verify-mpesa`
+- `POST /api/account/kyc`
 - `POST /api/account/deposit`
 - `GET /api/account/transactions`
 - `POST /api/orders`

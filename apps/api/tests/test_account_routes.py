@@ -34,6 +34,7 @@ class FakeAccountService:
                         first_name=first_name,
                         phone=phone,
                         mpesa_phone=None,
+                        kyc_status="not_started",
                         mpesa_verified_at=None,
                     ),
                     wallet=Wallet(
@@ -67,6 +68,7 @@ class FakeAccountService:
                         first_name="Bryan",
                         phone=phone,
                         mpesa_phone=phone,
+                        kyc_status="not_started",
                         mpesa_verified_at=datetime.now(UTC),
                     ),
                     wallet=Wallet(
@@ -104,6 +106,7 @@ class FakeAccountService:
                         first_name="Bryan",
                         phone="0796851024",
                         mpesa_phone="0796851024",
+                        kyc_status="approved",
                         mpesa_verified_at=datetime.now(UTC),
                     ),
                     wallet=Wallet(
@@ -156,6 +159,7 @@ class FakeAccountService:
                         first_name="Bryan",
                         phone="0796851024",
                         mpesa_phone="0796851024",
+                        kyc_status="approved",
                         mpesa_verified_at=datetime.now(UTC),
                     ),
                     wallet=Wallet(
@@ -226,6 +230,111 @@ class FakeAccountService:
             },
         )()
 
+    async def get_kyc_profile(self, *, user_id: str):
+        assert user_id == "user-1"
+        return None
+
+    async def submit_kyc_profile(
+        self,
+        *,
+        user_id: str,
+        legal_name: str,
+        national_id_number: str,
+        date_of_birth: str,
+        document_reference: str,
+    ):
+        assert user_id == "user-1"
+        assert national_id_number == "12345678"
+        return type(
+            "KycSubmission",
+            (),
+            {
+                "status": "pending",
+                "account": build_pending_kyc_authenticated_account()
+                .to_snapshot()
+                .to_response_model(),
+                "profile": {
+                    "status": "pending",
+                    "legalName": legal_name,
+                    "nationalIdNumberMasked": "****5678",
+                    "dateOfBirth": date_of_birth,
+                    "documentType": "national_id",
+                    "documentReference": document_reference,
+                    "submittedAt": datetime.now(UTC).isoformat(),
+                    "reviewedAt": None,
+                    "rejectionReason": None,
+                },
+            },
+        )()
+
+    async def list_kyc_queue(self, *, admin_user_id: str, status_filter: str | None):
+        assert admin_user_id == "user-1"
+        assert status_filter == "pending"
+        return type(
+            "KycQueue",
+            (),
+            {
+                "items": [
+                    {
+                        "userId": "user-2",
+                        "phone": "0796000000",
+                        "status": "pending",
+                        "legalName": "Amina Wanjiru",
+                        "nationalIdNumberMasked": "****1234",
+                        "documentType": "national_id",
+                        "submittedAt": datetime.now(UTC).isoformat(),
+                        "rejectionReason": None,
+                    }
+                ]
+            },
+        )()
+
+    async def review_kyc_profile(
+        self,
+        *,
+        admin_user_id: str,
+        target_user_id: str,
+        decision: str,
+        rejection_reason: str | None,
+    ):
+        assert admin_user_id == "user-1"
+        assert target_user_id == "user-2"
+        assert decision == "approved"
+        assert rejection_reason is None
+        return type(
+            "KycReview",
+            (),
+            {
+                "status": "approved",
+                "account": {
+                    "user": {
+                        "id": "user-2",
+                        "firstName": "Amina",
+                        "phone": "0796000000",
+                        "mpesaPhone": "0796000000",
+                        "mpesaVerified": True,
+                        "kycStatus": "approved",
+                    },
+                    "wallet": {
+                        "currency": "KES",
+                        "availableBalanceKes": "100.00",
+                        "reservedBalanceKes": "0.00",
+                    },
+                },
+                "profile": {
+                    "status": "approved",
+                    "legalName": "Amina Wanjiru",
+                    "nationalIdNumberMasked": "****1234",
+                    "dateOfBirth": "1996-08-14",
+                    "documentType": "national_id",
+                    "documentReference": "https://example.com/id.pdf",
+                    "submittedAt": datetime.now(UTC).isoformat(),
+                    "reviewedAt": datetime.now(UTC).isoformat(),
+                    "rejectionReason": None,
+                },
+            },
+        )()
+
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         self.callback_payloads.append(callback_payload)
 
@@ -237,6 +346,7 @@ def build_authenticated_account() -> AuthenticatedAccount:
             first_name="Bryan",
             phone="0796851024",
             mpesa_phone="0796851024",
+            kyc_status="approved",
             mpesa_verified_at=datetime.now(UTC),
         ),
         wallet=Wallet(
@@ -263,6 +373,7 @@ def build_funded_authenticated_account() -> AuthenticatedAccount:
             first_name="Bryan",
             phone="0796851024",
             mpesa_phone="0796851024",
+            kyc_status="approved",
             mpesa_verified_at=datetime.now(UTC),
         ),
         wallet=Wallet(
@@ -289,6 +400,7 @@ def build_withdrawn_authenticated_account() -> AuthenticatedAccount:
             first_name="Bryan",
             phone="0796851024",
             mpesa_phone="0796851024",
+            kyc_status="approved",
             mpesa_verified_at=datetime.now(UTC),
         ),
         wallet=Wallet(
@@ -313,6 +425,33 @@ def build_client() -> TestClient:
     app.dependency_overrides[get_account_access_service] = lambda: FakeAccountService()
     app.dependency_overrides[get_authenticated_account] = build_authenticated_account
     return TestClient(app)
+
+
+def build_pending_kyc_authenticated_account() -> AuthenticatedAccount:
+    return AuthenticatedAccount(
+        user=User(
+            id="user-1",
+            first_name="Bryan",
+            phone="0796851024",
+            mpesa_phone="0796851024",
+            kyc_status="pending",
+            mpesa_verified_at=datetime.now(UTC),
+        ),
+        wallet=Wallet(
+            user_id="user-1",
+            currency="KES",
+            available_balance=Decimal("305.00"),
+            reserved_balance=Decimal("0.00"),
+        ),
+        session=UserSession(
+            id="session-1",
+            user_id="user-1",
+            token_hash="hash",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_seen_at=datetime.now(UTC),
+            revoked_at=None,
+        ),
+    )
 
 
 def build_callback_payload() -> dict[str, object]:
@@ -372,6 +511,51 @@ def test_wallet_transactions_returns_activity_feed() -> None:
     assert payload["account"]["wallet"]["availableBalanceKes"] == "305.00"
     assert payload["items"][0]["kind"] == "withdrawal"
     assert payload["items"][1]["kind"] == "deposit"
+
+
+def test_submit_kyc_returns_pending_profile_shape() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/kyc/submit",
+        json={
+            "legalName": "Bryan Bosire",
+            "nationalIdNumber": "12345678",
+            "dateOfBirth": "1998-04-13",
+            "documentReference": "https://example.com/id.pdf",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "pending"
+    assert payload["account"]["user"]["kycStatus"] == "pending"
+    assert payload["profile"]["nationalIdNumberMasked"] == "****5678"
+
+
+def test_admin_kyc_queue_returns_pending_profiles() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/admin/kyc/profiles?status=pending")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["status"] == "pending"
+    assert payload["items"][0]["nationalIdNumberMasked"] == "****1234"
+
+
+def test_admin_kyc_review_approves_profile() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/admin/kyc/profiles/user-2/review",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "approved"
+    assert payload["account"]["user"]["kycStatus"] == "approved"
 
 
 def test_me_returns_authenticated_account_snapshot() -> None:

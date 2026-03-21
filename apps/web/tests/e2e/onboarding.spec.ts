@@ -240,6 +240,34 @@ test("a verified wallet can initiate a KES 500 M-Pesa top-up from wallet setup",
   await expect(page.getByTestId("account-wallet-button")).toContainText("Ksh 505");
 });
 
+test("a verified wallet can submit KYC details from the wallet sheet", async ({ page }) => {
+  const phone = buildUniquePhone();
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByLabel("First name").fill("Bryan");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+
+  await page.getByLabel("Legal name").fill("Bryan Bosire");
+  await page.getByLabel("National ID number").fill("12345678");
+  await page.getByLabel("Date of birth").fill("1998-04-13");
+  await page.getByLabel("Document link or reference").fill("https://example.com/id.pdf");
+  await page.getByRole("button", { name: "Submit KYC for review" }).click();
+
+  await expect(page.getByTestId("kyc-pending-status")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+  await expect(page.getByTestId("account-wallet-button")).toContainText("KYC pending");
+});
+
 test("a funded wallet can withdraw KES 200 back to M-Pesa from the wallet sheet", async ({
   page
 }) => {

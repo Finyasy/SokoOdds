@@ -9,8 +9,12 @@ from typing import Annotated, cast
 from app.core.auth import extract_bearer_token
 from app.core.config import settings
 from app.schemas.account import (
+    AdminKycQueueResponse,
+    AdminKycReviewRequest,
     AuthOnboardRequest,
     AuthOnboardResponse,
+    KycProfileRequest,
+    KycSubmissionResponse,
     MeResponse,
     WalletDepositRequest,
     WalletDepositResponse,
@@ -76,6 +80,45 @@ async def verify_mpesa_wallet(
         account=result.account.to_response_model(),
         verificationCreditKes=f"{result.verification_credit_amount:.2f}",
     )
+
+
+@router.get(
+    "/kyc/me",
+    status_code=status.HTTP_200_OK,
+    response_model=KycSubmissionResponse | None,
+)
+async def get_my_kyc_profile(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> KycSubmissionResponse | None:
+    try:
+        return await account_service.get_kyc_profile(user_id=account.user.id)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@router.post(
+    "/kyc/submit",
+    status_code=status.HTTP_200_OK,
+    response_model=KycSubmissionResponse,
+)
+async def submit_kyc_profile(
+    payload: KycProfileRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> KycSubmissionResponse:
+    try:
+        return await account_service.submit_kyc_profile(
+            user_id=account.user.id,
+            legal_name=payload.legalName,
+            national_id_number=payload.nationalIdNumber,
+            date_of_birth=payload.dateOfBirth,
+            document_reference=payload.documentReference,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post(
@@ -228,6 +271,49 @@ async def get_wallet_transactions(
         return await account_service.get_wallet_transactions(user_id=account.user.id)
     except AuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@router.get(
+    "/admin/kyc/profiles",
+    status_code=status.HTTP_200_OK,
+    response_model=AdminKycQueueResponse,
+)
+async def list_kyc_profiles(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+    status_filter: Annotated[str | None, Query(alias="status")] = None,
+) -> AdminKycQueueResponse:
+    try:
+        return await account_service.list_kyc_queue(
+            admin_user_id=account.user.id,
+            status_filter=status_filter,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.post(
+    "/admin/kyc/profiles/{user_id}/review",
+    status_code=status.HTTP_200_OK,
+    response_model=KycSubmissionResponse,
+)
+async def review_kyc_profile(
+    user_id: str,
+    payload: AdminKycReviewRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> KycSubmissionResponse:
+    try:
+        return await account_service.review_kyc_profile(
+            admin_user_id=account.user.id,
+            target_user_id=user_id,
+            decision=payload.decision,
+            rejection_reason=payload.rejectionReason,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/wallet/withdraw/callback", status_code=status.HTTP_200_OK)

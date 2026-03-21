@@ -16,10 +16,12 @@ import {
   fetchWalletTransactions,
   fetchWalletWithdrawalStatus,
   fetchCurrentAccount,
+  submitKycProfile,
   submitOrder as submitOrderRequest,
   topUpWallet,
   withdrawFromWallet,
   type AccountSnapshot,
+  type KycProfileResponse,
   type OrderSubmissionPayload,
   type WalletTransactionItem,
   verifyMpesaWallet
@@ -36,6 +38,7 @@ type OnboardingState = {
   name: string;
   phone: string;
   mpesaVerified: boolean;
+  kycStatus: string;
   walletBalanceKes: number;
   reservedBalanceKes: number;
 };
@@ -44,6 +47,7 @@ type AccountSheetView = "closed" | "account" | "verify";
 type VerificationState = "idle" | "submitting-account" | "sending" | "sent";
 type DepositState = "idle" | "sending" | "sent";
 type WithdrawalState = "idle" | "sending" | "sent" | "review";
+type KycState = "idle" | "sending" | "pending" | "approved" | "rejected";
 
 type OnboardingContextValue = {
   state: OnboardingState;
@@ -63,12 +67,20 @@ type OnboardingContextValue = {
   requestWalletWithdrawal: (
     amountKes: number
   ) => Promise<{ releasedAmountKes: string; status: "completed" | "pending" | "review_required" }>;
+  submitKyc: (input: {
+    legalName: string;
+    nationalIdNumber: string;
+    dateOfBirth: string;
+    documentReference: string;
+  }) => Promise<void>;
   dismissWhatsAppPrompt: () => void;
   joinWhatsAppAlerts: () => void;
   showWhatsAppPrompt: boolean;
   verificationState: VerificationState;
   depositState: DepositState;
   withdrawalState: WithdrawalState;
+  kycState: KycState;
+  kycProfile: KycProfileResponse | null;
   walletActivity: WalletTransactionItem[];
   isWalletActivityLoading: boolean;
   whatsappUrl: string;
@@ -81,6 +93,7 @@ const DEFAULT_STATE: OnboardingState = {
   name: "",
   phone: "",
   mpesaVerified: false,
+  kycStatus: "not_started",
   walletBalanceKes: 0,
   reservedBalanceKes: 0
 };
@@ -132,6 +145,7 @@ function accountSnapshotToState(snapshot: AccountSnapshot) {
     name: snapshot.user.firstName,
     phone: snapshot.user.mpesaPhone ?? snapshot.user.phone,
     mpesaVerified: snapshot.user.mpesaVerified,
+    kycStatus: snapshot.user.kycStatus,
     walletBalanceKes: Number(snapshot.wallet.availableBalanceKes),
     reservedBalanceKes: Number(snapshot.wallet.reservedBalanceKes)
   };
@@ -155,6 +169,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [verificationState, setVerificationState] = useState<VerificationState>("idle");
   const [depositState, setDepositState] = useState<DepositState>("idle");
   const [withdrawalState, setWithdrawalState] = useState<WithdrawalState>("idle");
+  const [kycState, setKycState] = useState<KycState>("idle");
+  const [kycProfile, setKycProfile] = useState<KycProfileResponse | null>(null);
   const [walletActivity, setWalletActivity] = useState<WalletTransactionItem[]>([]);
   const [isWalletActivityLoading, setIsWalletActivityLoading] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
@@ -284,6 +300,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       verificationState,
       depositState,
       withdrawalState,
+      kycState,
+      kycProfile,
       walletActivity,
       isWalletActivityLoading,
       whatsappUrl: WHATSAPP_ALERTS_URL,
@@ -293,6 +311,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         setVerificationState("idle");
         setDepositState("idle");
         setWithdrawalState("idle");
+        setKycState(state.kycStatus === "approved" ? "approved" : "idle");
         setAccountSheetView(state.isSignedIn ? "verify" : "account");
       },
       openVerificationSheet: () => {
@@ -300,6 +319,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         setVerificationState(state.mpesaVerified ? "sent" : "idle");
         setDepositState("idle");
         setWithdrawalState("idle");
+        setKycState(
+          state.kycStatus === "approved"
+            ? "approved"
+            : state.kycStatus === "pending"
+              ? "pending"
+              : state.kycStatus === "rejected"
+                ? "rejected"
+                : "idle"
+        );
         setAccountSheetView("verify");
       },
       closeAccountSheet: () => {
@@ -316,6 +344,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         setVerificationState(state.mpesaVerified ? "sent" : "idle");
         setDepositState("idle");
         setWithdrawalState("idle");
+        setKycState(
+          state.kycStatus === "approved"
+            ? "approved"
+            : state.kycStatus === "pending"
+              ? "pending"
+              : state.kycStatus === "rejected"
+                ? "rejected"
+                : "idle"
+        );
       },
       submitAccountProfile: async ({ name, phone }) => {
         setAccountError(null);
@@ -332,6 +369,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             ...accountSnapshotToState(account)
           }));
           setWalletActivity([]);
+          setKycProfile(null);
           setVerificationState("idle");
           setAccountSheetView("verify");
         } catch (error) {
@@ -359,6 +397,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
           setVerificationState("sent");
           setDepositState("idle");
           setWithdrawalState("idle");
+          setKycState(
+            result.account.user.kycStatus === "approved"
+              ? "approved"
+              : result.account.user.kycStatus === "pending"
+                ? "pending"
+                : result.account.user.kycStatus === "rejected"
+                  ? "rejected"
+                  : "idle"
+          );
         } catch (error) {
           setVerificationState("idle");
           setAccountError(
@@ -454,6 +501,38 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
           throw error;
         }
       },
+      submitKyc: async (input) => {
+        setAccountError(null);
+        setKycState("sending");
+
+        try {
+          const result = await submitKycProfile(input);
+          setState((current) => ({
+            ...current,
+            ...accountSnapshotToState(result.account)
+          }));
+          setKycProfile(result.profile);
+          setKycState(
+            result.status === "approved"
+              ? "approved"
+              : result.status === "rejected"
+                ? "rejected"
+                : "pending"
+          );
+        } catch (error) {
+          setKycState(
+            state.kycStatus === "approved"
+              ? "approved"
+              : state.kycStatus === "pending"
+                ? "pending"
+                : state.kycStatus === "rejected"
+                  ? "rejected"
+                  : "idle"
+          );
+          setAccountError(error instanceof Error ? error.message : "Could not submit KYC.");
+          throw error;
+        }
+      },
       submitOrder: async (input) => {
         const result = await submitOrderRequest(input, generateIdempotencyKey());
 
@@ -495,6 +574,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       verificationState,
       depositState,
       withdrawalState,
+      kycState,
+      kycProfile,
       walletActivity,
       isWalletActivityLoading
     ]
@@ -515,6 +596,7 @@ function accountSnapshotToStateCleared() {
     name: "",
     phone: "",
     mpesaVerified: false,
+    kycStatus: "not_started",
     walletBalanceKes: 0,
     reservedBalanceKes: 0
   };
@@ -595,6 +677,7 @@ function AccountSheet() {
     accountSheetView,
     closeAccountSheet,
     state,
+    submitKyc,
     submitAccountProfile,
     requestWalletTopUp,
     requestWalletWithdrawal,
@@ -602,17 +685,27 @@ function AccountSheet() {
     verificationState,
     depositState,
     withdrawalState,
+    kycState,
+    kycProfile,
     walletActivity,
     isWalletActivityLoading,
     accountError
   } = useOnboarding();
   const [name, setName] = useState(state.name);
   const [phone, setPhone] = useState(state.phone || "07");
+  const [legalName, setLegalName] = useState("");
+  const [nationalIdNumber, setNationalIdNumber] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [documentReference, setDocumentReference] = useState("");
 
   useEffect(() => {
     if (accountSheetView === "closed") {
       setName(state.name);
       setPhone(state.phone || "07");
+      setLegalName(state.name ? `${state.name} ` : "");
+      setNationalIdNumber("");
+      setDateOfBirth("");
+      setDocumentReference("");
     }
   }, [accountSheetView, state.name, state.phone]);
 
@@ -629,6 +722,12 @@ function AccountSheet() {
   const isWithdrawalSending = withdrawalState === "sending";
   const isWithdrawalComplete = withdrawalState === "sent";
   const isWithdrawalReview = withdrawalState === "review";
+  const isKycSending = kycState === "sending";
+  const canSubmitKyc =
+    legalName.trim().length >= 4 &&
+    nationalIdNumber.trim().length >= 6 &&
+    dateOfBirth.length === 10 &&
+    documentReference.trim().length >= 4;
 
   return (
     <div className="overlay-shell" role="presentation">
@@ -828,6 +927,89 @@ function AccountSheet() {
                 >
                   {isWithdrawalSending ? "Sending payout request..." : "Withdraw KES 200 to M-Pesa"}
                 </button>
+
+                <div className="dialog-status">
+                  <strong>KYC review</strong>
+                  <p>
+                    Submit your legal details once so larger limits and stricter trading gates can
+                    rely on a reviewed profile.
+                  </p>
+                </div>
+                {kycState === "approved" ? (
+                  <div className="dialog-success" data-testid="kyc-approved-success">
+                    <strong>KYC approved.</strong>
+                    <p>Your profile is now cleared for stricter wallet and trading controls.</p>
+                  </div>
+                ) : kycState === "pending" ? (
+                  <div className="dialog-status" data-testid="kyc-pending-status">
+                    <strong>KYC submitted.</strong>
+                    <p>
+                      {kycProfile?.legalName ?? "Your profile"} is waiting for review. We will keep
+                      the current wallet flow available while review is pending.
+                    </p>
+                  </div>
+                ) : kycState === "rejected" ? (
+                  <div className="dialog-error" role="alert" data-testid="kyc-rejected-status">
+                    <strong>KYC needs an update.</strong>
+                    <p>{kycProfile?.rejectionReason ?? "Please correct the submission and try again."}</p>
+                  </div>
+                ) : null}
+                {state.kycStatus !== "approved" ? (
+                  <div className="dialog-form dialog-form--kyc">
+                    <label>
+                      Legal name
+                      <input
+                        className="dialog-input"
+                        value={legalName}
+                        onChange={(event) => setLegalName(event.target.value)}
+                        placeholder="Bryan Bosire"
+                      />
+                    </label>
+                    <label>
+                      National ID number
+                      <input
+                        className="dialog-input"
+                        value={nationalIdNumber}
+                        onChange={(event) => setNationalIdNumber(event.target.value)}
+                        placeholder="12345678"
+                        inputMode="numeric"
+                      />
+                    </label>
+                    <label>
+                      Date of birth
+                      <input
+                        className="dialog-input"
+                        type="date"
+                        value={dateOfBirth}
+                        onChange={(event) => setDateOfBirth(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Document link or reference
+                      <input
+                        className="dialog-input"
+                        value={documentReference}
+                        onChange={(event) => setDocumentReference(event.target.value)}
+                        placeholder="https://example.com/id.pdf"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="ghost-button primary-button--block"
+                      onClick={() =>
+                        void submitKyc({
+                          legalName,
+                          nationalIdNumber,
+                          dateOfBirth,
+                          documentReference
+                        })
+                      }
+                      disabled={isKycSending || !canSubmitKyc}
+                    >
+                      {isKycSending ? "Submitting KYC..." : "Submit KYC for review"}
+                    </button>
+                  </div>
+                ) : null}
 
                 <div className="wallet-activity" data-testid="wallet-activity">
                   <div className="wallet-activity__header">
