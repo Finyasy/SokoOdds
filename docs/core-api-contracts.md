@@ -13,6 +13,7 @@ Where an ADR already exists, this document mirrors the accepted decision at the 
 - `POST /api/v1/orders`
 - `POST /api/v1/wallet/deposit`
 - `POST /api/v1/wallet/withdraw`
+- `GET /api/v1/wallet/transactions`
 - `POST /api/v1/admin/markets/{id}/resolve`
 
 ### Request Header
@@ -290,6 +291,18 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 - failed callbacks release the held amount back to `available balance`
 - repeated callbacks for the same conversation are safe to replay and must not double-release funds
 
+### Wallet Activity Endpoint
+
+`GET /api/v1/wallet/transactions`
+
+### Wallet Activity Rules
+
+- the request requires an authenticated session
+- the response returns a refreshed account snapshot together with the latest wallet activity rows
+- the initial activity feed includes verification credits, M-Pesa top-ups, and M-Pesa withdrawals
+- withdrawal rows stay visible across `pending`, `review_required`, `completed`, and `failed` states so payout holds and released failures are visible to the user
+- the current wallet sheet refreshes this feed after verification, deposit initiation, and withdrawal initiation
+
 ### Session Revocation Endpoint
 
 `DELETE /api/v1/auth/session`
@@ -311,6 +324,7 @@ The Next.js app uses same-origin route handlers as a thin bridge in front of the
 - `GET /api/account/me`
 - `POST /api/account/verify-mpesa`
 - `POST /api/account/deposit`
+- `GET /api/account/transactions`
 - `POST /api/orders`
 
 ### Web Bridge Rules

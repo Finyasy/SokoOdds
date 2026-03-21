@@ -23,11 +23,13 @@ from app.schemas.account import (
     AccountUserResponse,
     WalletDepositStatusResponse,
     WalletResponse,
+    WalletTransactionItemResponse,
+    WalletTransactionsResponse,
     WalletWithdrawalStatusResponse,
 )
 from app.services.order_intake import quantize_money
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_session)]
@@ -131,6 +133,28 @@ class WalletWithdrawalResult:
     review_required: bool
     customer_message: str | None
     account: AccountSnapshot
+
+
+@dataclass(frozen=True)
+class WalletTransactionItem:
+    id: str
+    kind: str
+    status: str
+    title: str
+    subtitle: str
+    amount: Decimal
+    created_at: datetime
+
+    def to_response_model(self) -> WalletTransactionItemResponse:
+        return WalletTransactionItemResponse(
+            id=self.id,
+            kind=self.kind,
+            status=self.status,
+            title=self.title,
+            subtitle=self.subtitle,
+            amountKes=f"{self.amount:.2f}",
+            createdAt=self.created_at.isoformat(),
+        )
 
 
 def snapshot_from_models(user: User, wallet: Wallet) -> AccountSnapshot:
@@ -629,6 +653,48 @@ class AccountAccessService:
             account=account.to_response_model(),
         )
 
+    async def get_wallet_transactions(self, *, user_id: str) -> WalletTransactionsResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        verification_entries_result = await self.session.execute(
+            select(LedgerEntry)
+            .where(
+                LedgerEntry.user_id == user_id,
+                LedgerEntry.entry_type == "MPESA_VERIFICATION_CREDIT",
+            )
+            .order_by(desc(LedgerEntry.created_at))
+        )
+        verification_entries = verification_entries_result.scalars().all()
+
+        deposits_result = await self.session.execute(
+            select(Deposit).where(Deposit.user_id == user_id).order_by(desc(Deposit.created_at))
+        )
+        deposits = deposits_result.scalars().all()
+
+        withdrawals_result = await self.session.execute(
+            select(Withdrawal)
+            .where(Withdrawal.user_id == user_id)
+            .order_by(desc(Withdrawal.created_at))
+        )
+        withdrawals = withdrawals_result.scalars().all()
+
+        items = [
+            *[self._build_verification_activity(entry) for entry in verification_entries],
+            *[self._build_deposit_activity(deposit) for deposit in deposits],
+            *[self._build_withdrawal_activity(withdrawal) for withdrawal in withdrawals],
+        ]
+        items.sort(
+            key=lambda item: (item.created_at, self._activity_priority(item.kind)),
+            reverse=True,
+        )
+
+        return WalletTransactionsResponse(
+            account=account.to_response_model(),
+            items=[item.to_response_model() for item in items[:10]],
+        )
+
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         callback = extract_stk_callback(callback_payload)
         if callback is None:
@@ -762,6 +828,63 @@ class AccountAccessService:
         amounts = result.scalars().all()
         total = sum((quantize_money(amount) for amount in amounts), Decimal("0.00"))
         return quantize_money(total)
+
+    def _build_verification_activity(self, entry: LedgerEntry) -> WalletTransactionItem:
+        return WalletTransactionItem(
+            id=entry.id,
+            kind="verification",
+            status="completed",
+            title="M-Pesa wallet verified",
+            subtitle="KES 5 verification credit added back to your wallet.",
+            amount=quantize_money(entry.amount),
+            created_at=entry.created_at,
+        )
+
+    def _build_deposit_activity(self, deposit: Deposit) -> WalletTransactionItem:
+        if deposit.status == "completed":
+            subtitle = "Top-up confirmed and added to your available balance."
+        elif deposit.status == "failed":
+            subtitle = deposit.result_desc or "The M-Pesa prompt did not complete."
+        else:
+            subtitle = "M-Pesa prompt sent. Waiting for confirmation from Safaricom."
+
+        return WalletTransactionItem(
+            id=deposit.id,
+            kind="deposit",
+            status=deposit.status,
+            title="M-Pesa wallet top-up",
+            subtitle=subtitle,
+            amount=quantize_money(deposit.amount),
+            created_at=deposit.created_at,
+        )
+
+    def _build_withdrawal_activity(self, withdrawal: Withdrawal) -> WalletTransactionItem:
+        if withdrawal.status == "completed":
+            subtitle = "Payout completed to your verified M-Pesa number."
+        elif withdrawal.status == "review_required":
+            subtitle = "Funds are reserved while the payout waits for manual review."
+        elif withdrawal.status == "failed":
+            subtitle = "Payout failed and the held amount was released back to your wallet."
+        else:
+            subtitle = "Funds are reserved while the M-Pesa payout is still processing."
+
+        return WalletTransactionItem(
+            id=withdrawal.id,
+            kind="withdrawal",
+            status=withdrawal.status,
+            title="M-Pesa withdrawal",
+            subtitle=subtitle,
+            amount=quantize_money(withdrawal.amount),
+            created_at=withdrawal.created_at,
+        )
+
+    def _activity_priority(self, kind: str) -> int:
+        priorities = {
+            "withdrawal": 3,
+            "deposit": 2,
+            "verification": 1,
+        }
+        return priorities.get(kind, 0)
 
 
 async def get_account_access_service(

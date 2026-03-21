@@ -194,6 +194,38 @@ class FakeAccountService:
             },
         )()
 
+    async def get_wallet_transactions(self, *, user_id: str):
+        assert user_id == "user-1"
+        return type(
+            "WalletTransactions",
+            (),
+            {
+                "account": build_withdrawn_authenticated_account()
+                .to_snapshot()
+                .to_response_model(),
+                "items": [
+                    {
+                        "id": "withdraw-1",
+                        "kind": "withdrawal",
+                        "status": "completed",
+                        "title": "M-Pesa withdrawal",
+                        "subtitle": "Payout completed to your verified M-Pesa number.",
+                        "amountKes": "200.00",
+                        "createdAt": datetime.now(UTC).isoformat(),
+                    },
+                    {
+                        "id": "deposit-1",
+                        "kind": "deposit",
+                        "status": "completed",
+                        "title": "M-Pesa wallet top-up",
+                        "subtitle": "Top-up confirmed and added to your available balance.",
+                        "amountKes": "500.00",
+                        "createdAt": datetime.now(UTC).isoformat(),
+                    },
+                ],
+            },
+        )()
+
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         self.callback_payloads.append(callback_payload)
 
@@ -328,6 +360,18 @@ def test_verify_mpesa_returns_wallet_credit_shape() -> None:
     payload = response.json()
     assert payload["status"] == "verified"
     assert payload["verificationCreditKes"] == "5.00"
+
+
+def test_wallet_transactions_returns_activity_feed() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/wallet/transactions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["account"]["wallet"]["availableBalanceKes"] == "305.00"
+    assert payload["items"][0]["kind"] == "withdrawal"
+    assert payload["items"][1]["kind"] == "deposit"
 
 
 def test_me_returns_authenticated_account_snapshot() -> None:

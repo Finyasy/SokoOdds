@@ -46,9 +46,10 @@ The checked-in local stack is defined in [infra/compose/compose.yaml](infra/comp
   - dismiss the first-visit WhatsApp prompt
   - create the lightweight account
   - verify the M-Pesa number with the `KES 5` credit flow
-  - trigger the `KES 500` M-Pesa top-up and confirm the wallet refreshes after the deposit completes
-  - trigger the `KES 200` withdrawal and confirm the wallet balance drops while the payout completes
-  - place the sample order and confirm available versus reserved balance updates
+- trigger the `KES 500` M-Pesa top-up and confirm the wallet refreshes after the deposit completes
+- trigger the `KES 200` withdrawal and confirm the wallet balance drops while the payout completes
+- confirm the wallet sheet now shows recent verification, top-up, and withdrawal activity inline
+- place the sample order and confirm available versus reserved balance updates
 
 The current Playwright coverage in `pnpm test:e2e:web` verifies:
 
@@ -57,6 +58,7 @@ The current Playwright coverage in `pnpm test:e2e:web` verifies:
 - M-Pesa verification success and wallet persistence after reload
 - M-Pesa top-up initiation plus wallet refresh after deposit completion
 - M-Pesa withdrawal initiation plus wallet refresh after payout completion
+- wallet activity visibility after funding and payout actions
 - first live order submission from the order ticket
 
 The local scripts default to `localhost` for API and engine probes. If another project is already bound to the same ports on `127.0.0.1`, keep `API_HOST=localhost` and `ENGINE_HOST=localhost` in `.env`, or move the ports in `.env` to avoid collisions.

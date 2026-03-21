@@ -13,6 +13,7 @@ import {
 import {
   createAccountSession,
   fetchWalletDepositStatus,
+  fetchWalletTransactions,
   fetchWalletWithdrawalStatus,
   fetchCurrentAccount,
   submitOrder as submitOrderRequest,
@@ -20,6 +21,7 @@ import {
   withdrawFromWallet,
   type AccountSnapshot,
   type OrderSubmissionPayload,
+  type WalletTransactionItem,
   verifyMpesaWallet
 } from "@/lib/account-client";
 
@@ -67,6 +69,8 @@ type OnboardingContextValue = {
   verificationState: VerificationState;
   depositState: DepositState;
   withdrawalState: WithdrawalState;
+  walletActivity: WalletTransactionItem[];
+  isWalletActivityLoading: boolean;
   whatsappUrl: string;
 };
 
@@ -151,6 +155,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [verificationState, setVerificationState] = useState<VerificationState>("idle");
   const [depositState, setDepositState] = useState<DepositState>("idle");
   const [withdrawalState, setWithdrawalState] = useState<WithdrawalState>("idle");
+  const [walletActivity, setWalletActivity] = useState<WalletTransactionItem[]>([]);
+  const [isWalletActivityLoading, setIsWalletActivityLoading] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -232,6 +238,42 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [isHydrated, pathname, state.hasSeenWhatsAppPrompt]);
 
+  useEffect(() => {
+    if (accountSheetView !== "verify" || !state.isSignedIn) {
+      return;
+    }
+
+    let isCancelled = false;
+    setIsWalletActivityLoading(true);
+
+    void fetchWalletTransactions()
+      .then((payload) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setWalletActivity(payload.items);
+        setState((current) => ({
+          ...current,
+          ...accountSnapshotToState(payload.account)
+        }));
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setWalletActivity([]);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsWalletActivityLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accountSheetView, state.isSignedIn]);
+
   const value = useMemo<OnboardingContextValue>(
     () => ({
       state,
@@ -242,6 +284,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       verificationState,
       depositState,
       withdrawalState,
+      walletActivity,
+      isWalletActivityLoading,
       whatsappUrl: WHATSAPP_ALERTS_URL,
       accountError,
       openAccountSheet: () => {
@@ -287,6 +331,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             ...current,
             ...accountSnapshotToState(account)
           }));
+          setWalletActivity([]);
           setVerificationState("idle");
           setAccountSheetView("verify");
         } catch (error) {
@@ -309,6 +354,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             ...current,
             ...accountSnapshotToState(result.account)
           }));
+          const walletTransactions = await fetchWalletTransactions();
+          setWalletActivity(walletTransactions.items);
           setVerificationState("sent");
           setDepositState("idle");
           setWithdrawalState("idle");
@@ -343,6 +390,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             ...current,
             ...accountSnapshotToState(latestAccount)
           }));
+          const walletTransactions = await fetchWalletTransactions();
+          setWalletActivity(walletTransactions.items);
           setDepositState(latestStatus === "completed" ? "sent" : "idle");
 
           return {
@@ -380,6 +429,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             ...current,
             ...accountSnapshotToState(latestAccount)
           }));
+          const walletTransactions = await fetchWalletTransactions();
+          setWalletActivity(walletTransactions.items);
           setWithdrawalState(
             latestStatus === "review_required"
               ? "review"
@@ -443,7 +494,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       state,
       verificationState,
       depositState,
-      withdrawalState
+      withdrawalState,
+      walletActivity,
+      isWalletActivityLoading
     ]
   );
 
@@ -549,6 +602,8 @@ function AccountSheet() {
     verificationState,
     depositState,
     withdrawalState,
+    walletActivity,
+    isWalletActivityLoading,
     accountError
   } = useOnboarding();
   const [name, setName] = useState(state.name);
@@ -773,6 +828,42 @@ function AccountSheet() {
                 >
                   {isWithdrawalSending ? "Sending payout request..." : "Withdraw KES 200 to M-Pesa"}
                 </button>
+
+                <div className="wallet-activity" data-testid="wallet-activity">
+                  <div className="wallet-activity__header">
+                    <strong>Wallet activity</strong>
+                    <span>Latest funding and payout movement</span>
+                  </div>
+                  {isWalletActivityLoading ? (
+                    <div className="wallet-activity__empty">Refreshing wallet activity...</div>
+                  ) : walletActivity.length > 0 ? (
+                    <div className="wallet-activity__list">
+                      {walletActivity.map((item) => (
+                        <article className="wallet-activity__item" key={item.id}>
+                          <div className="wallet-activity__copy">
+                            <div className="wallet-activity__topline">
+                              <strong>{item.title}</strong>
+                              <span
+                                className={`wallet-activity__badge wallet-activity__badge--${item.status}`}
+                              >
+                                {formatActivityStatus(item.status)}
+                              </span>
+                            </div>
+                            <p>{item.subtitle}</p>
+                          </div>
+                          <div className="wallet-activity__meta">
+                            <strong>{formatActivityAmount(item)}</strong>
+                            <span>{formatActivityDate(item.createdAt)}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="wallet-activity__empty">
+                      Your latest top-ups, verification credits, and withdrawals will appear here.
+                    </div>
+                  )}
+                </div>
               </div>
             ) : null}
           </>
@@ -780,4 +871,38 @@ function AccountSheet() {
       </section>
     </div>
   );
+}
+
+function formatActivityStatus(status: string) {
+  switch (status) {
+    case "completed":
+      return "Completed";
+    case "pending":
+      return "Pending";
+    case "review_required":
+      return "In review";
+    case "failed":
+      return "Released";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
+function formatActivityAmount(item: WalletTransactionItem) {
+  const sign = item.kind === "withdrawal" && item.status !== "failed" ? "-" : "+";
+  return `${sign} Ksh ${Number(item.amountKes).toLocaleString("en-KE")}`;
+}
+
+function formatActivityDate(createdAt: string) {
+  const parsedDate = new Date(createdAt);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Just now";
+  }
+
+  return parsedDate.toLocaleString("en-KE", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }

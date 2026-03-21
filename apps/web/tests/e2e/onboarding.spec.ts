@@ -261,11 +261,14 @@ test("a funded wallet can withdraw KES 200 back to M-Pesa from the wallet sheet"
   await expect(page.getByTestId("wallet-topup-success")).toBeVisible({
     timeout: 5000
   });
+  await expect(page.getByTestId("wallet-activity")).toContainText("M-Pesa wallet top-up");
+  await expect(page.getByTestId("wallet-activity")).toContainText("Completed");
 
   await page.getByRole("button", { name: "Withdraw KES 200 to M-Pesa" }).click();
   await expect(page.getByTestId("wallet-withdrawal-success")).toBeVisible({
     timeout: 5000
   });
+  await expect(page.getByTestId("wallet-activity")).toContainText("M-Pesa withdrawal");
   await page.getByRole("button", { name: "Back to market" }).click();
   await expect(page.getByTestId("account-wallet-button")).toContainText("Ksh 305");
 });

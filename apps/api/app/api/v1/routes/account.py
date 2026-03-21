@@ -15,6 +15,7 @@ from app.schemas.account import (
     WalletDepositRequest,
     WalletDepositResponse,
     WalletDepositStatusResponse,
+    WalletTransactionsResponse,
     WalletVerifyRequest,
     WalletVerifyResponse,
     WalletWithdrawalRequest,
@@ -212,6 +213,21 @@ async def get_wallet_withdrawal_status(
         )
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/wallet/transactions",
+    status_code=status.HTTP_200_OK,
+    response_model=WalletTransactionsResponse,
+)
+async def get_wallet_transactions(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> WalletTransactionsResponse:
+    try:
+        return await account_service.get_wallet_transactions(user_id=account.user.id)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
 @router.post("/wallet/withdraw/callback", status_code=status.HTTP_200_OK)

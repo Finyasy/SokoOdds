@@ -89,3 +89,18 @@ class WalletWithdrawalStatusResponse(BaseModel):
     releasedAmountKes: str
     reviewRequired: bool
     account: AccountSnapshotResponse
+
+
+class WalletTransactionItemResponse(BaseModel):
+    id: str
+    kind: str
+    status: str
+    title: str
+    subtitle: str
+    amountKes: str
+    createdAt: str
+
+
+class WalletTransactionsResponse(BaseModel):
+    account: AccountSnapshotResponse
+    items: list[WalletTransactionItemResponse]

@@ -183,3 +183,37 @@ async def test_large_wallet_withdrawal_enters_review_required(async_session: Asy
     assert wallet is not None
     assert wallet.available_balance == Decimal("405.00")
     assert wallet.reserved_balance == Decimal("2600.00")
+
+
+@pytest.mark.asyncio
+async def test_wallet_transactions_feed_includes_verification_deposit_and_withdrawal(
+    async_session: AsyncSession,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    await service.verify_mpesa(user_id=onboarded.account.user_id, phone="0712 345 678")
+    await service.initiate_wallet_deposit(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("500.00"),
+    )
+    await service.initiate_wallet_withdrawal(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("200.00"),
+    )
+
+    result = await service.get_wallet_transactions(user_id=onboarded.account.user_id)
+
+    assert result.account.wallet.availableBalanceKes == "305.00"
+    assert [item.kind for item in result.items[:3]] == [
+        "withdrawal",
+        "deposit",
+        "verification",
+    ]
+    assert result.items[0].status == "completed"
+    assert result.items[1].amountKes == "500.00"
+    assert result.items[2].title == "M-Pesa wallet verified"

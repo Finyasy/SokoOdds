@@ -65,6 +65,21 @@ export type WalletWithdrawalStatusResponse = {
   account: AccountSnapshot;
 };
 
+export type WalletTransactionItem = {
+  id: string;
+  kind: string;
+  status: string;
+  title: string;
+  subtitle: string;
+  amountKes: string;
+  createdAt: string;
+};
+
+export type WalletTransactionsResponse = {
+  account: AccountSnapshot;
+  items: WalletTransactionItem[];
+};
+
 type AccountApiErrorShape = {
   detail?: string;
   error?: string;
@@ -212,6 +227,19 @@ export async function fetchWalletWithdrawalStatus(
   const payload = await readJson<WalletWithdrawalStatusResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.account) {
     throw new Error(getErrorMessage(payload, "Could not read the withdrawal status."));
+  }
+
+  return payload;
+}
+
+export async function fetchWalletTransactions(): Promise<WalletTransactionsResponse> {
+  const response = await fetch("/api/account/transactions", {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<WalletTransactionsResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account || !Array.isArray(payload.items)) {
+    throw new Error(getErrorMessage(payload, "Could not read wallet activity."));
   }
 
   return payload;
