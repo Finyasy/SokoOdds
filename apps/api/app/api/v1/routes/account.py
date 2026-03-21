@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, cast
 
 from app.core.auth import extract_bearer_token
 from app.core.config import settings
@@ -23,7 +26,7 @@ from app.services.account_access import (
     get_account_access_service,
     get_authenticated_account,
 )
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 
 router = APIRouter()
 AccountServiceDep = Annotated[AccountAccessService, Depends(get_account_access_service)]
@@ -122,9 +125,10 @@ async def get_wallet_deposit_status(
 
 @router.post("/wallet/deposit/callback", status_code=status.HTTP_200_OK)
 async def receive_wallet_deposit_callback(
-    payload: dict[str, object],
+    request: Request,
     account_service: AccountServiceDep,
     token: Annotated[str | None, Query()] = None,
+    signature: Annotated[str | None, Header(alias="X-SokoOdds-Callback-Signature")] = None,
 ) -> dict[str, str]:
     if token != settings.daraja_callback_token:
         raise HTTPException(
@@ -132,8 +136,26 @@ async def receive_wallet_deposit_callback(
             detail="Invalid callback token.",
         )
 
+    raw_body = await request.body()
+    verify_callback_origin(request, raw_body, signature)
+
     try:
-        await account_service.process_stk_callback(callback_payload=payload)
+        parsed_payload = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Callback payload must be valid JSON.",
+        ) from exc
+
+    if not isinstance(parsed_payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Callback payload must be a JSON object.",
+        )
+    callback_payload = cast(dict[str, object], parsed_payload)
+
+    try:
+        await account_service.process_stk_callback(callback_payload=callback_payload)
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -151,3 +173,56 @@ async def revoke_current_session(
         await account_service.revoke_session(token)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
+
+
+def verify_callback_origin(request: Request, raw_body: bytes, signature: str | None) -> None:
+    resolved_ip = resolve_callback_ip(request)
+    allowed_ips = settings.daraja_callback_allowed_ip_list
+
+    if allowed_ips and resolved_ip not in allowed_ips:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Callback origin is not allowlisted.",
+        )
+
+    secret = settings.daraja_callback_signature_secret
+    if not secret:
+        return
+
+    if signature is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing callback signature.",
+        )
+
+    expected_signature = build_callback_signature(raw_body)
+    if not hmac.compare_digest(signature, expected_signature):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid callback signature.",
+        )
+
+
+def resolve_callback_ip(request: Request) -> str:
+    client_ip = request.client.host if request.client is not None else ""
+    forwarded_for = request.headers.get("x-forwarded-for")
+
+    if (
+        forwarded_for
+        and client_ip in settings.daraja_callback_trusted_proxy_ip_list
+        and forwarded_for.strip()
+    ):
+        forwarded_ip = forwarded_for.split(",")[0].strip()
+        if forwarded_ip:
+            return forwarded_ip
+
+    return client_ip
+
+
+def build_callback_signature(raw_body: bytes) -> str:
+    digest = hmac.new(
+        settings.daraja_callback_signature_secret.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return f"sha256={digest}"

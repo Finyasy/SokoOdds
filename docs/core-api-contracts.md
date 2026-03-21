@@ -256,6 +256,9 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 ### Daraja Callback Rules
 
 - the callback token must match `DARAJA_CALLBACK_TOKEN`
+- if `DARAJA_CALLBACK_ALLOWED_IPS` is configured, the resolved source IP must be on that allowlist
+- `X-Forwarded-For` is only trusted when the immediate client IP is in `DARAJA_CALLBACK_TRUSTED_PROXY_IPS`
+- if `DARAJA_CALLBACK_SIGNATURE_SECRET` is configured, the request must include `X-SokoOdds-Callback-Signature: sha256=<hmac>` computed from the raw JSON body
 - successful callbacks mark the deposit `completed`, credit the wallet once, and append one `MPESA_DEPOSIT` ledger entry
 - repeated callbacks for the same checkout request are safe to replay and must not double-credit the wallet
 - failed callbacks mark the deposit `failed` and leave wallet balances unchanged

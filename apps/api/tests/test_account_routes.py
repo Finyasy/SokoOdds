@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import hmac
+import json
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from app.core.config import settings
 from app.main import app
 from app.models import User, UserSession, Wallet
 from app.services.account_access import (
@@ -16,6 +20,8 @@ from fastapi.testclient import TestClient
 
 @dataclass
 class FakeAccountService:
+    callback_payloads: list[dict[str, object]] = field(default_factory=lambda: [])
+
     async def onboard_account(self, *, first_name: str, phone: str):
         return type(
             "OnboardResult",
@@ -133,6 +139,9 @@ class FakeAccountService:
             },
         )()
 
+    async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
+        self.callback_payloads.append(callback_payload)
+
 
 def build_authenticated_account() -> AuthenticatedAccount:
     return AuthenticatedAccount(
@@ -191,6 +200,25 @@ def build_client() -> TestClient:
     app.dependency_overrides[get_account_access_service] = lambda: FakeAccountService()
     app.dependency_overrides[get_authenticated_account] = build_authenticated_account
     return TestClient(app)
+
+
+def build_callback_payload() -> dict[str, object]:
+    return {
+        "Body": {
+            "stkCallback": {
+                "MerchantRequestID": "merchant-1",
+                "CheckoutRequestID": "checkout-1",
+                "ResultCode": 0,
+                "ResultDesc": "Accepted",
+            }
+        }
+    }
+
+
+def build_signature(secret: str, payload: dict[str, object]) -> str:
+    raw_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    digest = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    return f"sha256={digest}"
 
 
 def test_onboard_returns_session_and_wallet_shape() -> None:
@@ -257,3 +285,76 @@ def test_wallet_deposit_status_returns_current_shape() -> None:
     assert payload["status"] == "completed"
     assert payload["creditedAmountKes"] == "500.00"
     assert payload["account"]["wallet"]["availableBalanceKes"] == "505.00"
+
+
+def test_wallet_deposit_callback_rejects_invalid_token() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/wallet/deposit/callback?token=wrong-token",
+        json=build_callback_payload(),
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid callback token."
+
+
+def test_wallet_deposit_callback_accepts_valid_signature_from_allowlisted_forwarded_ip() -> None:
+    service = FakeAccountService()
+    client = build_client()
+    app.dependency_overrides[get_account_access_service] = lambda: service
+
+    original_allowed_ips = settings.daraja_callback_allowed_ips
+    original_trusted_proxies = settings.daraja_callback_trusted_proxy_ips
+    original_signature_secret = settings.daraja_callback_signature_secret
+    original_callback_token = settings.daraja_callback_token
+    payload = build_callback_payload()
+
+    try:
+        settings.daraja_callback_allowed_ips = "196.201.214.200"
+        settings.daraja_callback_trusted_proxy_ips = "testclient"
+        settings.daraja_callback_signature_secret = "shared-secret"
+        settings.daraja_callback_token = "signed-token"
+
+        response = client.post(
+            "/api/v1/wallet/deposit/callback?token=signed-token",
+            json=payload,
+            headers={
+                "X-Forwarded-For": "196.201.214.200, 127.0.0.1",
+                "X-SokoOdds-Callback-Signature": build_signature("shared-secret", payload),
+            },
+        )
+    finally:
+        settings.daraja_callback_allowed_ips = original_allowed_ips
+        settings.daraja_callback_trusted_proxy_ips = original_trusted_proxies
+        settings.daraja_callback_signature_secret = original_signature_secret
+        settings.daraja_callback_token = original_callback_token
+
+    assert response.status_code == 200
+    assert response.json() == {"ResultCode": "0", "ResultDesc": "Accepted"}
+    assert service.callback_payloads == [payload]
+
+
+def test_wallet_deposit_callback_rejects_non_allowlisted_ip() -> None:
+    client = build_client()
+    original_allowed_ips = settings.daraja_callback_allowed_ips
+    original_trusted_proxies = settings.daraja_callback_trusted_proxy_ips
+    original_callback_token = settings.daraja_callback_token
+
+    try:
+        settings.daraja_callback_allowed_ips = "196.201.214.200"
+        settings.daraja_callback_trusted_proxy_ips = "testclient"
+        settings.daraja_callback_token = "allowlisted-token"
+
+        response = client.post(
+            "/api/v1/wallet/deposit/callback?token=allowlisted-token",
+            json=build_callback_payload(),
+            headers={"X-Forwarded-For": "10.10.10.10, 127.0.0.1"},
+        )
+    finally:
+        settings.daraja_callback_allowed_ips = original_allowed_ips
+        settings.daraja_callback_trusted_proxy_ips = original_trusted_proxies
+        settings.daraja_callback_token = original_callback_token
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Callback origin is not allowlisted."

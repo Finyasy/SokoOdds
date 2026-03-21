@@ -93,6 +93,7 @@ Current shipped behavior:
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state
 - first-time M-Pesa verification credits `KES 5.00` once and returns the user to a wallet-ready order ticket
 - verified users can now initiate a small M-Pesa top-up through a real deposit record and callback lifecycle while keeping the same wallet-sheet UX
+- callback handling now supports token validation, optional body-signature verification, and allowlisted source IP enforcement for safer Daraja ingestion
 - the market page can submit a first authenticated sample order and reflect available versus reserved balances
 
 Still pending in later sprints:

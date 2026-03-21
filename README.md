@@ -61,7 +61,12 @@ The local scripts default to `localhost` for API and engine probes. If another p
 
 The web app uses `SOKOODDS_API_SERVER_URL` for server-side fetches and `NEXT_PUBLIC_API_BASE_URL` for browser-side requests. In Docker Compose the internal server URL points at `http://api:8000/api/v1`.
 
-For wallet funding, the API supports `DARAJA_MODE=stub` for local auto-completed callbacks and `DARAJA_MODE=sandbox` for real Safaricom sandbox STK push initiation. Set the `DARAJA_*` values in [.env.example](/Users/bryanbosire/projects/SokoOdds/.env.example) before testing sandbox mode.
+For wallet funding, the API supports `DARAJA_MODE=stub` for local auto-completed callbacks and `DARAJA_MODE=sandbox` for real Safaricom sandbox STK push initiation. The checked-in [.env.example](/Users/bryanbosire/projects/SokoOdds/.env.example) is now sandbox-oriented, so switch it back to `stub` for local-only work if you do not have public callback routing yet.
+
+For production-style callback hardening, set:
+- `DARAJA_CALLBACK_ALLOWED_IPS` to the Safaricom callback source ranges you trust
+- `DARAJA_CALLBACK_TRUSTED_PROXY_IPS` to only the ingress or reverse proxies allowed to forward `X-Forwarded-For`
+- `DARAJA_CALLBACK_SIGNATURE_SECRET` if you place an internal relay or edge worker in front of the callback and want body-signature verification in addition to token and IP controls
 
 For account-aware browser actions, the Next.js app uses same-origin route handlers under `/api/account/*` and `/api/orders`. Those handlers proxy to FastAPI and keep the session token in the `sokoodds_session` HTTP-only cookie.
 

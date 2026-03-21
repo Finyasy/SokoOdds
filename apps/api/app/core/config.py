@@ -3,6 +3,10 @@ from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def parse_csv_list(value: str) -> tuple[str, ...]:
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
 class Settings(BaseSettings):
     app_name: str = "SokoOdds API"
     app_env: str = "development"
@@ -24,11 +28,22 @@ class Settings(BaseSettings):
     daraja_passkey: str = ""
     daraja_callback_base_url: str = "http://localhost:8000"
     daraja_callback_token: str = "local-daraja-token"
+    daraja_callback_allowed_ips: str = ""
+    daraja_callback_trusted_proxy_ips: str = "127.0.0.1,::1,testclient"
+    daraja_callback_signature_secret: str = ""
     daraja_stub_auto_complete: bool = True
     seed_demo_markets_on_startup: bool = False
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def daraja_callback_allowed_ip_list(self) -> tuple[str, ...]:
+        return parse_csv_list(self.daraja_callback_allowed_ips)
+
+    @property
+    def daraja_callback_trusted_proxy_ip_list(self) -> tuple[str, ...]:
+        return parse_csv_list(self.daraja_callback_trusted_proxy_ips)
 
 
 settings = Settings()
