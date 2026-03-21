@@ -201,6 +201,24 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 - the current web admin surface proxies these endpoints through same-origin routes at `/api/account/admin/kyc` and `/api/account/admin/kyc/{user_id}/review`
 - the current product review page for this flow is `/admin/kyc`
 
+### Admin Wallet Support Endpoint
+
+`GET /api/v1/admin/wallet/activity`
+
+### Admin Wallet Support Query Params
+
+- `status`: optional, one of `pending`, `review_required`, `failed`, `completed`, or `all`
+- `kind`: optional, one of `deposit`, `withdrawal`, or `all`
+- `limit`: optional, capped at `50`
+
+### Admin Wallet Support Rules
+
+- admin support access is controlled by the same configured phone allowlist as KYC review
+- the queue includes recent deposit and withdrawal activity with user name, phone, status, amount, and support-facing subtitle text
+- `review_required` is especially important for withdrawal support since those funds remain reserved until manual review or payout completion
+- the current web admin surface proxies this endpoint through the same-origin route `/api/account/admin/support`
+- the current product review page for this flow is `/admin/support`
+
 ### M-Pesa Wallet Top-Up Endpoint
 
 `POST /api/v1/wallet/deposit`

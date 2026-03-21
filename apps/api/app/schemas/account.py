@@ -150,3 +150,21 @@ class AdminKycQueueItemResponse(BaseModel):
 
 class AdminKycQueueResponse(BaseModel):
     items: list[AdminKycQueueItemResponse]
+
+
+class AdminWalletSupportItemResponse(BaseModel):
+    id: str
+    userId: str
+    firstName: str
+    phone: str
+    kind: str
+    status: str
+    title: str
+    subtitle: str
+    amountKes: str
+    createdAt: str
+    updatedAt: str
+
+
+class AdminWalletSupportResponse(BaseModel):
+    items: list[AdminWalletSupportItemResponse]

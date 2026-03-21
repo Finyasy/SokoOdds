@@ -335,6 +335,40 @@ class FakeAccountService:
             },
         )()
 
+    async def list_admin_wallet_activity(
+        self,
+        *,
+        admin_user_id: str,
+        status_filter: str | None,
+        kind_filter: str | None,
+        limit: int,
+    ):
+        assert admin_user_id == "user-1"
+        assert status_filter == "review_required"
+        assert kind_filter == "withdrawal"
+        assert limit == 10
+        return type(
+            "AdminWalletSupport",
+            (),
+            {
+                "items": [
+                    {
+                        "id": "withdraw-1",
+                        "userId": "user-2",
+                        "firstName": "Amina",
+                        "phone": "0796000000",
+                        "kind": "withdrawal",
+                        "status": "review_required",
+                        "title": "M-Pesa withdrawal",
+                        "subtitle": "Funds are reserved while this payout waits for manual review.",
+                        "amountKes": "2600.00",
+                        "createdAt": datetime.now(UTC).isoformat(),
+                        "updatedAt": datetime.now(UTC).isoformat(),
+                    }
+                ]
+            },
+        )()
+
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         self.callback_payloads.append(callback_payload)
 
@@ -556,6 +590,20 @@ def test_admin_kyc_review_approves_profile() -> None:
     payload = response.json()
     assert payload["status"] == "approved"
     assert payload["account"]["user"]["kycStatus"] == "approved"
+
+
+def test_admin_wallet_support_returns_review_queue() -> None:
+    client = build_client()
+
+    response = client.get(
+        "/api/v1/admin/wallet/activity?status=review_required&kind=withdrawal&limit=10"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["kind"] == "withdrawal"
+    assert payload["items"][0]["status"] == "review_required"
+    assert payload["items"][0]["amountKes"] == "2600.00"
 
 
 def test_me_returns_authenticated_account_snapshot() -> None:

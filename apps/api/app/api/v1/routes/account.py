@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.schemas.account import (
     AdminKycQueueResponse,
     AdminKycReviewRequest,
+    AdminWalletSupportResponse,
     AuthOnboardRequest,
     AuthOnboardResponse,
     KycProfileRequest,
@@ -314,6 +315,29 @@ async def review_kyc_profile(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get(
+    "/admin/wallet/activity",
+    status_code=status.HTTP_200_OK,
+    response_model=AdminWalletSupportResponse,
+)
+async def list_admin_wallet_activity(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+    status_filter: Annotated[str | None, Query(alias="status")] = None,
+    kind_filter: Annotated[str | None, Query(alias="kind")] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> AdminWalletSupportResponse:
+    try:
+        return await account_service.list_admin_wallet_activity(
+            admin_user_id=account.user.id,
+            status_filter=status_filter,
+            kind_filter=kind_filter,
+            limit=limit,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("/wallet/withdraw/callback", status_code=status.HTTP_200_OK)

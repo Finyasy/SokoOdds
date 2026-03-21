@@ -114,6 +114,24 @@ export type AdminKycQueueResponse = {
   items: AdminKycQueueItem[];
 };
 
+export type AdminWalletSupportItem = {
+  id: string;
+  userId: string;
+  firstName: string;
+  phone: string;
+  kind: string;
+  status: string;
+  title: string;
+  subtitle: string;
+  amountKes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminWalletSupportResponse = {
+  items: AdminWalletSupportItem[];
+};
+
 type AccountApiErrorShape = {
   detail?: string;
   error?: string;
@@ -333,6 +351,35 @@ export async function reviewAdminKycProfile(input: {
   const payload = await readJson<KycSubmissionResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.account || !payload.profile) {
     throw new Error(getErrorMessage(payload, "Could not review the KYC profile."));
+  }
+
+  return payload;
+}
+
+export async function fetchAdminWalletSupport(input?: {
+  status?: string;
+  kind?: string;
+  limit?: number;
+}): Promise<AdminWalletSupportResponse> {
+  const query = new URLSearchParams();
+  if (input?.status) {
+    query.set("status", input.status);
+  }
+  if (input?.kind) {
+    query.set("kind", input.kind);
+  }
+  if (input?.limit) {
+    query.set("limit", String(input.limit));
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const response = await fetch(`/api/account/admin/support${suffix}`, {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<AdminWalletSupportResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload || !Array.isArray(payload.items)) {
+    throw new Error(getErrorMessage(payload, "Could not load wallet support activity."));
   }
 
   return payload;

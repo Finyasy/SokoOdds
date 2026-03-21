@@ -355,3 +355,49 @@ test("an allowlisted admin can approve a pending KYC profile from the web review
     timeout: 5000
   });
 });
+
+test("an allowlisted admin can inspect withdrawal support activity from the web support queue", async ({
+  page
+}) => {
+  const customerPhone = buildUniquePhone();
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByLabel("First name").fill("Amina");
+  await page.getByLabel("M-Pesa number").fill(customerPhone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Add KES 500 via M-Pesa" }).click();
+  await expect(page.getByTestId("wallet-topup-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Withdraw KES 200 to M-Pesa" }).click();
+  await expect(page.getByTestId("wallet-withdrawal-success")).toBeVisible({
+    timeout: 5000
+  });
+
+  await page.context().clearCookies();
+  await page.addInitScript(() => {
+    window.localStorage.clear();
+  });
+
+  await page.goto("/admin/support");
+
+  await expect(page.getByTestId("admin-support-signin-required")).toBeVisible();
+  await page.getByRole("button", { name: "Sign in as admin" }).click();
+  await page.getByLabel("First name").fill("Admin");
+  await page.getByLabel("M-Pesa number").fill("0712345678");
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Skip for now" }).click();
+
+  await page.getByLabel("Money support kind filters").getByRole("button", { name: "Withdrawal" }).click();
+  await expect(page.getByTestId("admin-support-queue")).toContainText(customerPhone, {
+    timeout: 5000
+  });
+  await expect(page.getByTestId("admin-support-queue")).toContainText("M-Pesa withdrawal");
+});

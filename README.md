@@ -50,6 +50,7 @@ The checked-in local stack is defined in [infra/compose/compose.yaml](infra/comp
 - trigger the `KES 200` withdrawal and confirm the wallet balance drops while the payout completes
 - submit the lightweight KYC form from the wallet sheet and confirm it moves into `KYC pending`
 - switch to [http://localhost:3000/admin/kyc](http://localhost:3000/admin/kyc), sign in with an allowlisted admin number, and review the pending KYC applicant
+- switch to [http://localhost:3000/admin/support](http://localhost:3000/admin/support) and inspect recent deposits and withdrawals from the admin support queue
 - confirm the wallet sheet now shows recent verification, top-up, and withdrawal activity inline
 - place the sample order and confirm available versus reserved balance updates
 
@@ -62,6 +63,7 @@ The current Playwright coverage in `pnpm test:e2e:web` verifies:
 - M-Pesa withdrawal initiation plus wallet refresh after payout completion
 - lightweight KYC submission from the wallet sheet
 - admin KYC approval from the web review queue
+- admin wallet support visibility for deposits and withdrawals
 - wallet activity visibility after funding and payout actions
 - first live order submission from the order ticket
 
@@ -80,6 +82,8 @@ For KYC rollout, the current repo now supports a lightweight KYC submission and 
 - `ADMIN_PHONE_ALLOWLIST` for the phones allowed to access admin KYC review endpoints
 - `REQUIRE_APPROVED_KYC_FOR_ORDERS=true` only when you want order placement to enforce approved KYC server-side
 - the web review surface lives at [http://localhost:3000/admin/kyc](http://localhost:3000/admin/kyc) and uses the same `sokoodds_session` cookie-backed account flow as the market pages
+
+For ops/support review, the current repo also includes [http://localhost:3000/admin/support](http://localhost:3000/admin/support), which reads recent deposit and withdrawal activity through the same allowlisted admin session.
 
 For account-aware browser actions, the Next.js app uses same-origin route handlers under `/api/account/*` and `/api/orders`. Those handlers proxy to FastAPI and keep the session token in the `sokoodds_session` HTTP-only cookie.
 

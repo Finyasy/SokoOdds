@@ -99,6 +99,7 @@ Current shipped behavior:
 - the wallet sheet now exposes a compact activity rail for verification credits, top-ups, and withdrawals so users can see recent money movement without leaving the market flow
 - the wallet sheet now supports a first lightweight KYC submission step, and the API includes admin review endpoints plus a feature-flagged order gate for approved KYC
 - the web app now includes a minimal `/admin/kyc` review board backed by the same account session flow, so allowlisted admins can approve or reject KYC profiles without leaving the product UI
+- the web app now includes a minimal `/admin/support` board so allowlisted admins can inspect recent deposit and withdrawal states from the same session-backed product shell
 
 Still pending in later sprints:
 

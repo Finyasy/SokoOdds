@@ -23,6 +23,8 @@ from app.schemas.account import (
     AccountUserResponse,
     AdminKycQueueItemResponse,
     AdminKycQueueResponse,
+    AdminWalletSupportItemResponse,
+    AdminWalletSupportResponse,
     KycProfileResponse,
     KycSubmissionResponse,
     WalletDepositStatusResponse,
@@ -160,6 +162,36 @@ class WalletTransactionItem:
             subtitle=self.subtitle,
             amountKes=f"{self.amount:.2f}",
             createdAt=self.created_at.isoformat(),
+        )
+
+
+@dataclass(frozen=True)
+class AdminWalletSupportItem:
+    id: str
+    user_id: str
+    first_name: str
+    phone: str
+    kind: str
+    status: str
+    title: str
+    subtitle: str
+    amount: Decimal
+    created_at: datetime
+    updated_at: datetime
+
+    def to_response_model(self) -> AdminWalletSupportItemResponse:
+        return AdminWalletSupportItemResponse(
+            id=self.id,
+            userId=self.user_id,
+            firstName=self.first_name,
+            phone=self.phone,
+            kind=self.kind,
+            status=self.status,
+            title=self.title,
+            subtitle=self.subtitle,
+            amountKes=f"{self.amount:.2f}",
+            createdAt=self.created_at.isoformat(),
+            updatedAt=self.updated_at.isoformat(),
         )
 
 
@@ -887,6 +919,55 @@ class AccountAccessService:
             profile=self._build_kyc_profile_snapshot(profile).to_response_model(),
         )
 
+    async def list_admin_wallet_activity(
+        self,
+        *,
+        admin_user_id: str,
+        status_filter: str | None,
+        kind_filter: str | None,
+        limit: int,
+    ) -> AdminWalletSupportResponse:
+        await self._assert_admin_user(admin_user_id)
+
+        normalized_limit = max(1, min(limit, 50))
+        items: list[AdminWalletSupportItem] = []
+
+        if kind_filter in (None, "all", "deposit"):
+            deposit_query = select(Deposit, User).join(User, User.id == Deposit.user_id)
+            if status_filter is not None and status_filter != "all":
+                deposit_query = deposit_query.where(Deposit.status == status_filter)
+            deposit_query = deposit_query.order_by(desc(Deposit.created_at)).limit(normalized_limit)
+            deposits_result = await self.session.execute(deposit_query)
+            items.extend(
+                self._build_admin_deposit_support_item(deposit, user)
+                for deposit, user in deposits_result.all()
+            )
+
+        if kind_filter in (None, "all", "withdrawal"):
+            withdrawal_query = select(Withdrawal, User).join(User, User.id == Withdrawal.user_id)
+            if status_filter is not None and status_filter != "all":
+                withdrawal_query = withdrawal_query.where(Withdrawal.status == status_filter)
+            withdrawal_query = withdrawal_query.order_by(desc(Withdrawal.created_at)).limit(
+                normalized_limit
+            )
+            withdrawals_result = await self.session.execute(withdrawal_query)
+            items.extend(
+                self._build_admin_withdrawal_support_item(withdrawal, user)
+                for withdrawal, user in withdrawals_result.all()
+            )
+
+        items.sort(
+            key=lambda item: (
+                item.created_at,
+                self._activity_priority(item.kind),
+            ),
+            reverse=True,
+        )
+
+        return AdminWalletSupportResponse(
+            items=[item.to_response_model() for item in items[:normalized_limit]]
+        )
+
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         callback = extract_stk_callback(callback_payload)
         if callback is None:
@@ -1081,6 +1162,61 @@ class AccountAccessService:
             submitted_at=profile.submitted_at,
             reviewed_at=profile.reviewed_at,
             rejection_reason=profile.rejection_reason,
+        )
+
+    def _build_admin_deposit_support_item(
+        self, deposit: Deposit, user: User
+    ) -> AdminWalletSupportItem:
+        if deposit.status == "completed":
+            subtitle = f"Top-up confirmed for {deposit.phone}."
+        elif deposit.status == "failed":
+            subtitle = deposit.result_desc or "The M-Pesa prompt did not complete."
+        else:
+            subtitle = (
+                deposit.customer_message
+                or f"M-Pesa prompt sent to {deposit.phone}. Waiting for callback confirmation."
+            )
+
+        updated_at = deposit.updated_at or deposit.created_at
+        return AdminWalletSupportItem(
+            id=deposit.id,
+            user_id=user.id,
+            first_name=user.first_name,
+            phone=user.phone,
+            kind="deposit",
+            status=deposit.status,
+            title="M-Pesa wallet top-up",
+            subtitle=subtitle,
+            amount=quantize_money(deposit.amount),
+            created_at=deposit.created_at,
+            updated_at=updated_at,
+        )
+
+    def _build_admin_withdrawal_support_item(
+        self, withdrawal: Withdrawal, user: User
+    ) -> AdminWalletSupportItem:
+        if withdrawal.status == "completed":
+            subtitle = f"Payout completed to {withdrawal.phone}."
+        elif withdrawal.status == "review_required":
+            subtitle = "Funds are reserved while this payout waits for manual review."
+        elif withdrawal.status == "failed":
+            subtitle = "Payout failed and the held amount was released back to the wallet."
+        else:
+            subtitle = "Funds are reserved while the M-Pesa payout is still processing."
+
+        updated_at = withdrawal.updated_at or withdrawal.created_at
+        return AdminWalletSupportItem(
+            id=withdrawal.id,
+            user_id=user.id,
+            first_name=user.first_name,
+            phone=user.phone,
+            kind="withdrawal",
+            status=withdrawal.status,
+            title="M-Pesa withdrawal",
+            subtitle=subtitle,
+            amount=quantize_money(withdrawal.amount),
+            created_at=withdrawal.created_at,
+            updated_at=updated_at,
         )
 
     def _activity_priority(self, kind: str) -> int:

@@ -280,3 +280,38 @@ async def test_admin_can_approve_pending_kyc(async_session: AsyncSession) -> Non
     assert queue.items[0].status == "pending"
     assert result.status == "approved"
     assert result.account.user.kycStatus == "approved"
+
+
+@pytest.mark.asyncio
+async def test_admin_wallet_support_queue_includes_deposits_and_withdrawals(
+    async_session: AsyncSession,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    admin = await service.onboard_account(first_name="Admin", phone="0712 345 678")
+    customer = await service.onboard_account(first_name="Amina", phone="0796 000 000")
+    await service.verify_mpesa(user_id=customer.account.user_id, phone="0796 000 000")
+    await service.initiate_wallet_deposit(
+        user_id=customer.account.user_id,
+        amount=Decimal("500.00"),
+    )
+    await service.initiate_wallet_withdrawal(
+        user_id=customer.account.user_id,
+        amount=Decimal("200.00"),
+    )
+
+    result = await service.list_admin_wallet_activity(
+        admin_user_id=admin.account.user_id,
+        status_filter=None,
+        kind_filter=None,
+        limit=10,
+    )
+
+    assert result.items[0].kind == "withdrawal"
+    assert result.items[0].phone == "0796000000"
+    assert result.items[1].kind == "deposit"
+    assert result.items[1].firstName == "Amina"
