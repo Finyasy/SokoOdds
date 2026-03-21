@@ -78,3 +78,30 @@ async def test_mpesa_verification_credits_wallet_once(async_session: AsyncSessio
     assert wallet.available_balance == Decimal("5.00")
     assert wallet.reserved_balance == Decimal("0.00")
     assert ledger_count == 1
+
+
+@pytest.mark.asyncio
+async def test_wallet_deposit_credits_verified_wallet(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    await service.verify_mpesa(user_id=onboarded.account.user_id, phone="0712 345 678")
+
+    result = await service.initiate_wallet_deposit(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("500.00"),
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
+    )
+    ledger_count = await async_session.scalar(select(func.count()).select_from(LedgerEntry))
+
+    assert result.status == "initiated"
+    assert result.credited_amount == Decimal("500.00")
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("505.00")
+    assert ledger_count == 2

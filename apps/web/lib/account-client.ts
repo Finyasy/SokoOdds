@@ -30,6 +30,13 @@ export type OrderSubmissionResponse = {
   reserved_balance: string;
 };
 
+export type WalletDepositResponse = {
+  status: string;
+  depositReference: string;
+  creditedAmountKes: string;
+  account: AccountSnapshot;
+};
+
 type AccountApiErrorShape = {
   detail?: string;
   error?: string;
@@ -111,6 +118,23 @@ export async function verifyMpesaWallet(input: { phone: string }): Promise<{
   >(response);
   if (!response.ok || !payload?.account) {
     throw new Error(getErrorMessage(payload, "Could not verify the M-Pesa wallet."));
+  }
+
+  return payload;
+}
+
+export async function topUpWallet(input: { amountKes: string }): Promise<WalletDepositResponse> {
+  const response = await fetch("/api/account/deposit", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+
+  const payload = await readJson<WalletDepositResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account) {
+    throw new Error(getErrorMessage(payload, "Could not initiate the M-Pesa top-up."));
   }
 
   return payload;

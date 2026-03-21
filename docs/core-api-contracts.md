@@ -173,6 +173,49 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 - repeat verification attempts for an already verified account return `status = "already_verified"` and do not double-credit the wallet
 - the verified M-Pesa phone becomes part of the user account snapshot
 
+### M-Pesa Wallet Top-Up Endpoint
+
+`POST /api/v1/wallet/deposit`
+
+### M-Pesa Wallet Top-Up Request Body
+
+```json
+{
+  "amountKes": "500.00"
+}
+```
+
+### M-Pesa Wallet Top-Up Response
+
+```json
+{
+  "status": "initiated",
+  "depositReference": "mpesa-topup-123",
+  "creditedAmountKes": "500.00",
+  "account": {
+    "user": {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "firstName": "Bryan",
+      "phone": "+254796851024",
+      "mpesaPhone": "+254796851024",
+      "mpesaVerified": true
+    },
+    "wallet": {
+      "currency": "KES",
+      "availableBalanceKes": "505.00",
+      "reservedBalanceKes": "0.00"
+    }
+  }
+}
+```
+
+### M-Pesa Wallet Top-Up Rules
+
+- the request requires an authenticated session
+- the wallet must already be M-Pesa verified
+- the response returns a refreshed account snapshot so the web app can update balance state immediately
+- this repo currently simulates the first M-Pesa top-up by crediting the wallet and ledger directly while the Daraja flow is still pending
+
 ### Session Revocation Endpoint
 
 `DELETE /api/v1/auth/session`
@@ -193,6 +236,7 @@ The Next.js app uses same-origin route handlers as a thin bridge in front of the
 - `DELETE /api/account/session`
 - `GET /api/account/me`
 - `POST /api/account/verify-mpesa`
+- `POST /api/account/deposit`
 - `POST /api/orders`
 
 ### Web Bridge Rules

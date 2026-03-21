@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated
 
 from app.core.auth import extract_bearer_token
@@ -7,16 +8,20 @@ from app.schemas.account import (
     AuthOnboardRequest,
     AuthOnboardResponse,
     MeResponse,
+    WalletDepositRequest,
+    WalletDepositResponse,
     WalletVerifyRequest,
     WalletVerifyResponse,
 )
 from app.services.account_access import (
     AccountAccessService,
     AuthenticatedAccount,
+    AuthenticationError,
+    WalletFundingError,
     get_account_access_service,
     get_authenticated_account,
 )
-from fastapi import APIRouter, Depends, Header, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 
 router = APIRouter()
 AccountServiceDep = Annotated[AccountAccessService, Depends(get_account_access_service)]
@@ -61,6 +66,34 @@ async def verify_mpesa_wallet(
         status=result.status,
         account=result.account.to_response_model(),
         verificationCreditKes=f"{result.verification_credit_amount:.2f}",
+    )
+
+
+@router.post(
+    "/wallet/deposit",
+    status_code=status.HTTP_200_OK,
+    response_model=WalletDepositResponse,
+)
+async def initiate_wallet_deposit(
+    payload: WalletDepositRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> WalletDepositResponse:
+    try:
+        result = await account_service.initiate_wallet_deposit(
+            user_id=account.user.id,
+            amount=Decimal(payload.amountKes),
+        )
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    return WalletDepositResponse(
+        status=result.status,
+        depositReference=result.deposit_reference,
+        creditedAmountKes=f"{result.credited_amount:.2f}",
+        account=result.account.to_response_model(),
     )
 
 

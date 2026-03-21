@@ -16,9 +16,11 @@ export function OrderTicket({ market }: OrderTicketProps) {
     isSyncingAccount,
     openAccountSheet,
     openVerificationSheet,
+    requestWalletTopUp,
     submitOrder
   } = useOnboarding();
   const [orderState, setOrderState] = useState<"idle" | "submitting" | "submitted">("idle");
+  const [walletState, setWalletState] = useState<"idle" | "funding" | "funded">("idle");
   const [orderError, setOrderError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const quantity = 8;
@@ -31,13 +33,17 @@ export function OrderTicket({ market }: OrderTicketProps) {
       ? "Create account to trade"
       : !state.mpesaVerified
         ? "Verify M-Pesa with KES 5"
+        : !canTrade
+          ? walletState === "funding"
+            ? "Sending M-Pesa prompt..."
+            : walletState === "funded"
+              ? "Wallet topped up"
+              : "Add KES 500 via M-Pesa"
         : orderState === "submitted"
           ? "First trade submitted"
         : orderState === "submitting"
           ? "Submitting order..."
-          : canTrade
-            ? `Buy ${quantity} YES shares`
-            : "Top up wallet to trade";
+          : `Buy ${quantity} YES shares`;
 
   const helperCopy = isSyncingAccount
     ? "We are loading the latest wallet state before the first trade action appears."
@@ -45,11 +51,11 @@ export function OrderTicket({ market }: OrderTicketProps) {
       ? "Sign in first so your alerts, wallet state, and market activity can stay tied to one account."
       : !state.mpesaVerified
         ? "First-time users verify one M-Pesa number with a KES 5 prompt. That amount is added back to the wallet."
+        : !canTrade
+          ? "Your verified wallet can trigger a small M-Pesa top-up here instead of stopping the trade flow."
         : orderState === "submitted"
           ? "Funds moved from available balance into reserved balance. The execution event will fan out as the engine comes online."
-          : canTrade
-            ? "Your wallet is ready. This first order goes through the live API so you can review the real reserve-funds behavior."
-            : "Your first verification credit is live. After one small trade you will need a real top-up flow to keep trading.";
+          : "Your wallet is ready. This first order goes through the live API so you can review the real reserve-funds behavior.";
 
   async function handlePrimaryAction() {
     if (isSyncingAccount) {
@@ -67,7 +73,14 @@ export function OrderTicket({ market }: OrderTicketProps) {
     }
 
     if (!canTrade) {
-      openVerificationSheet();
+      setWalletState("funding");
+
+      try {
+        await requestWalletTopUp(500);
+        setWalletState("funded");
+      } catch {
+        setWalletState("idle");
+      }
       return;
     }
 
@@ -85,6 +98,7 @@ export function OrderTicket({ market }: OrderTicketProps) {
 
       setLastOrderId(result.orderId);
       setOrderState("submitted");
+      setWalletState("idle");
     } catch (error) {
       setOrderState("idle");
       setOrderError(error instanceof Error ? error.message : "Could not submit this order.");
@@ -153,6 +167,13 @@ export function OrderTicket({ market }: OrderTicketProps) {
         </div>
       ) : null}
 
+      {walletState === "funded" ? (
+        <div className="wallet-callout wallet-callout--success" data-testid="order-ticket-topup-success">
+          <span className="wallet-callout__status wallet-callout__status--ready">Wallet topped up</span>
+          <p>We initiated a KES 500 M-Pesa top-up so you can continue trading without leaving this market.</p>
+        </div>
+      ) : null}
+
       <div className="ticket-summary-grid">
         <div>
           <span>Estimated stake</span>
@@ -173,7 +194,12 @@ export function OrderTicket({ market }: OrderTicketProps) {
         type="button"
         className="primary-button primary-button--block"
         onClick={() => void handlePrimaryAction()}
-        disabled={isSyncingAccount || orderState === "submitting" || orderState === "submitted"}
+        disabled={
+          isSyncingAccount ||
+          orderState === "submitting" ||
+          orderState === "submitted" ||
+          walletState === "funding"
+        }
       >
         {actionLabel}
       </button>

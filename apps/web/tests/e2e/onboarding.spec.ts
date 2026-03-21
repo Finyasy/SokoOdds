@@ -212,3 +212,30 @@ test("a verified first-time wallet can place the sample order and move funds int
   await expect(page.getByTestId("order-ticket-reserved-balance")).toContainText("Ksh 4.96");
   await expect(page.getByTestId("order-ticket-available-balance")).toContainText("Ksh 0.04");
 });
+
+test("a verified wallet can initiate a KES 500 M-Pesa top-up from wallet setup", async ({
+  page
+}) => {
+  const phone = buildUniquePhone();
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByLabel("First name").fill("Bryan");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+
+  await page.getByRole("button", { name: "Add KES 500 via M-Pesa" }).click();
+
+  await expect(page.getByTestId("wallet-topup-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+  await expect(page.getByTestId("account-wallet-button")).toContainText("Ksh 505");
+});

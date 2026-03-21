@@ -14,6 +14,7 @@ import {
   createAccountSession,
   fetchCurrentAccount,
   submitOrder as submitOrderRequest,
+  topUpWallet,
   type AccountSnapshot,
   type OrderSubmissionPayload,
   verifyMpesaWallet
@@ -36,6 +37,7 @@ type OnboardingState = {
 
 type AccountSheetView = "closed" | "account" | "verify";
 type VerificationState = "idle" | "submitting-account" | "sending" | "sent";
+type DepositState = "idle" | "sending" | "sent";
 
 type OnboardingContextValue = {
   state: OnboardingState;
@@ -51,10 +53,12 @@ type OnboardingContextValue = {
   submitOrder: (
     input: OrderSubmissionPayload
   ) => Promise<{ orderId: string; idempotencyStatus: string | null }>;
+  requestWalletTopUp: (amountKes: number) => Promise<{ creditedAmountKes: string }>;
   dismissWhatsAppPrompt: () => void;
   joinWhatsAppAlerts: () => void;
   showWhatsAppPrompt: boolean;
   verificationState: VerificationState;
+  depositState: DepositState;
   whatsappUrl: string;
 };
 
@@ -137,6 +141,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [accountSheetView, setAccountSheetView] = useState<AccountSheetView>("closed");
   const [showWhatsAppPrompt, setShowWhatsAppPrompt] = useState(false);
   const [verificationState, setVerificationState] = useState<VerificationState>("idle");
+  const [depositState, setDepositState] = useState<DepositState>("idle");
   const [accountError, setAccountError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -226,25 +231,33 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       accountSheetView,
       showWhatsAppPrompt,
       verificationState,
+      depositState,
       whatsappUrl: WHATSAPP_ALERTS_URL,
       accountError,
       openAccountSheet: () => {
         setAccountError(null);
         setVerificationState("idle");
+        setDepositState("idle");
         setAccountSheetView(state.isSignedIn ? "verify" : "account");
       },
       openVerificationSheet: () => {
         setAccountError(null);
         setVerificationState(state.mpesaVerified ? "sent" : "idle");
+        setDepositState("idle");
         setAccountSheetView("verify");
       },
       closeAccountSheet: () => {
-        if (verificationState === "sending" || verificationState === "submitting-account") {
+        if (
+          verificationState === "sending" ||
+          verificationState === "submitting-account" ||
+          depositState === "sending"
+        ) {
           return;
         }
         setAccountError(null);
         setAccountSheetView("closed");
         setVerificationState(state.mpesaVerified ? "sent" : "idle");
+        setDepositState("idle");
       },
       submitAccountProfile: async ({ name, phone }) => {
         setAccountError(null);
@@ -283,11 +296,38 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             ...accountSnapshotToState(result.account)
           }));
           setVerificationState("sent");
+          setDepositState("idle");
         } catch (error) {
           setVerificationState("idle");
           setAccountError(
             error instanceof Error ? error.message : "Could not verify the M-Pesa wallet."
           );
+        }
+      },
+      requestWalletTopUp: async (amountKes) => {
+        setAccountError(null);
+        setDepositState("sending");
+
+        try {
+          const result = await topUpWallet({
+            amountKes: amountKes.toFixed(2)
+          });
+
+          setState((current) => ({
+            ...current,
+            ...accountSnapshotToState(result.account)
+          }));
+          setDepositState("sent");
+
+          return {
+            creditedAmountKes: result.creditedAmountKes
+          };
+        } catch (error) {
+          setDepositState("idle");
+          setAccountError(
+            error instanceof Error ? error.message : "Could not initiate the M-Pesa top-up."
+          );
+          throw error;
         }
       },
       submitOrder: async (input) => {
@@ -328,7 +368,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       pathname,
       showWhatsAppPrompt,
       state,
-      verificationState
+      verificationState,
+      depositState
     ]
   );
 
@@ -428,8 +469,10 @@ function AccountSheet() {
     closeAccountSheet,
     state,
     submitAccountProfile,
+    requestWalletTopUp,
     requestVerification,
     verificationState,
+    depositState,
     accountError
   } = useOnboarding();
   const [name, setName] = useState(state.name);
@@ -450,6 +493,8 @@ function AccountSheet() {
   const isAccountSubmitting = verificationState === "submitting-account";
   const isVerificationSending = verificationState === "sending";
   const isVerificationComplete = verificationState === "sent" || state.mpesaVerified;
+  const isDepositSending = depositState === "sending";
+  const isDepositComplete = depositState === "sent";
 
   return (
     <div className="overlay-shell" role="presentation">
@@ -597,6 +642,32 @@ function AccountSheet() {
                 {isVerificationComplete ? "Back to market" : "Skip for now"}
               </button>
             </div>
+
+            {isVerificationComplete ? (
+              <div className="dialog-topup">
+                <div className="dialog-status">
+                  <strong>Need a little more balance?</strong>
+                  <p>
+                    Send a demo M-Pesa top-up and credit KES 500 to this wallet so you can keep
+                    trading after the first verification-funded order.
+                  </p>
+                </div>
+                {isDepositComplete ? (
+                  <div className="dialog-success" data-testid="wallet-topup-success">
+                    <strong>KES 500 top-up initiated.</strong>
+                    <p>Your wallet balance has been refreshed and is ready for the next trade.</p>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="primary-button primary-button--block"
+                  onClick={() => void requestWalletTopUp(500)}
+                  disabled={isDepositSending}
+                >
+                  {isDepositSending ? "Sending M-Pesa prompt..." : "Add KES 500 via M-Pesa"}
+                </button>
+              </div>
+            ) : null}
           </>
         )}
       </section>

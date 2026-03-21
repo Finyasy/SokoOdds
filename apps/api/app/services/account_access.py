@@ -30,6 +30,10 @@ class AuthenticationError(Exception):
     pass
 
 
+class WalletFundingError(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class AccountSnapshot:
     user_id: str
@@ -79,6 +83,14 @@ class WalletVerificationResult:
     status: str
     account: AccountSnapshot
     verification_credit_amount: Decimal
+
+
+@dataclass(frozen=True)
+class WalletDepositResult:
+    status: str
+    deposit_reference: str
+    credited_amount: Decimal
+    account: AccountSnapshot
 
 
 def snapshot_from_models(user: User, wallet: Wallet) -> AccountSnapshot:
@@ -228,6 +240,49 @@ class AccountAccessService:
             if session_record is None:
                 return
             session_record.revoked_at = datetime.now(UTC)
+
+    async def initiate_wallet_deposit(
+        self,
+        *,
+        user_id: str,
+        amount: Decimal,
+    ) -> WalletDepositResult:
+        amount_to_credit = quantize_money(amount)
+        if amount_to_credit <= Decimal("0.00"):
+            raise WalletFundingError("Deposit amount must be greater than zero.")
+
+        async with self._transaction():
+            user = await self._get_user_for_update(user_id)
+            if user is None:
+                raise AuthenticationError("Authenticated user was not found.")
+            if user.mpesa_verified_at is None or user.mpesa_phone is None:
+                raise WalletFundingError("Verify your M-Pesa wallet before topping up.")
+
+            wallet = await self._get_or_create_wallet_for_update(user.id)
+            wallet.available_balance = quantize_money(wallet.available_balance + amount_to_credit)
+            deposit_reference = f"mpesa-topup-{uuid4()}"
+
+            self.session.add(
+                LedgerEntry(
+                    id=str(uuid4()),
+                    user_id=user.id,
+                    entry_type="MPESA_DEPOSIT",
+                    amount=amount_to_credit,
+                    currency=wallet.currency,
+                    reference_type="deposit",
+                    reference_id=deposit_reference,
+                    available_balance_after=wallet.available_balance,
+                    reserved_balance_after=wallet.reserved_balance,
+                    note=f"Demo M-Pesa top-up credited to {user.mpesa_phone}",
+                )
+            )
+
+        return WalletDepositResult(
+            status="initiated",
+            deposit_reference=deposit_reference,
+            credited_amount=amount_to_credit,
+            account=snapshot_from_models(user, wallet),
+        )
 
     @asynccontextmanager
     async def _transaction(self):

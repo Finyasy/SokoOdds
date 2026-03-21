@@ -92,6 +92,7 @@ Current shipped behavior:
 - the order ticket can open a lightweight account setup flow
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state
 - first-time M-Pesa verification credits `KES 5.00` once and returns the user to a wallet-ready order ticket
+- verified users can now initiate a small M-Pesa top-up and see refreshed wallet balance without leaving the market flow
 - the market page can submit a first authenticated sample order and reflect available versus reserved balances
 
 Still pending in later sprints:

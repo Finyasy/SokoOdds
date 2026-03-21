@@ -48,6 +48,7 @@ Already live in the checked-in app:
 - the trading CTA opens a lightweight account setup sheet
 - account creation is backed by the API through a same-origin Next.js route
 - M-Pesa verification credits `KES 5.00` once and returns the user to the order ticket as `wallet ready`
+- verified wallets can trigger a quick `KES 500` M-Pesa top-up from the same setup surface without leaving the market
 - the first sample order submits against the live API and updates available versus reserved balance in the UI
 
 Still intentionally not live in this pass:
@@ -55,7 +56,7 @@ Still intentionally not live in this pass:
 - real Daraja STK push integration
 - full KYC workflow
 - live WebSocket order book updates
-- deposit and withdrawal operations beyond the verification-credit flow
+- withdrawals and full Daraja-backed payment settlement beyond the current demo top-up flow
 
 ## Benchmark Synthesis
 

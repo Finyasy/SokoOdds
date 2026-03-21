@@ -81,6 +81,40 @@ class FakeAccountService:
             },
         )()
 
+    async def initiate_wallet_deposit(self, *, user_id: str, amount: Decimal):
+        return type(
+            "DepositResult",
+            (),
+            {
+                "status": "initiated",
+                "deposit_reference": "mpesa-topup-1",
+                "credited_amount": amount,
+                "account": AuthenticatedAccount(
+                    user=User(
+                        id=user_id,
+                        first_name="Bryan",
+                        phone="0796851024",
+                        mpesa_phone="0796851024",
+                        mpesa_verified_at=datetime.now(UTC),
+                    ),
+                    wallet=Wallet(
+                        user_id=user_id,
+                        currency="KES",
+                        available_balance=Decimal("505.00"),
+                        reserved_balance=Decimal("0.00"),
+                    ),
+                    session=UserSession(
+                        id="session-1",
+                        user_id=user_id,
+                        token_hash="hash",
+                        expires_at=datetime.now(UTC) + timedelta(days=30),
+                        last_seen_at=datetime.now(UTC),
+                        revoked_at=None,
+                    ),
+                ).to_snapshot(),
+            },
+        )()
+
 
 def build_authenticated_account() -> AuthenticatedAccount:
     return AuthenticatedAccount(
@@ -151,3 +185,18 @@ def test_me_returns_authenticated_account_snapshot() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["account"]["user"]["phone"] == "0796851024"
+
+
+def test_wallet_deposit_returns_credit_shape() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/wallet/deposit",
+        json={"amountKes": "500.00"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "initiated"
+    assert payload["creditedAmountKes"] == "500.00"
+    assert payload["account"]["wallet"]["availableBalanceKes"] == "505.00"

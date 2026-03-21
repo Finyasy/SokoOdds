@@ -46,3 +46,14 @@ class WalletVerifyResponse(BaseModel):
 
 class MeResponse(BaseModel):
     account: AccountSnapshotResponse
+
+
+class WalletDepositRequest(BaseModel):
+    amountKes: str = Field(pattern=r"^\d+(\.\d{1,2})?$")
+
+
+class WalletDepositResponse(BaseModel):
+    status: str
+    depositReference: str
+    creditedAmountKes: str
+    account: AccountSnapshotResponse
