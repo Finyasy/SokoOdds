@@ -24,6 +24,7 @@ type MarketDiscoveryShellProps = {
   initialSearchQuery?: string;
   initialFocus?: DiscoveryFocus;
   showSignalStrip?: boolean;
+  signalStripTone?: "home" | "catalog";
 };
 
 export function MarketDiscoveryShell({
@@ -37,7 +38,8 @@ export function MarketDiscoveryShell({
   initialCategory = "All",
   initialSearchQuery = "",
   initialFocus = "all",
-  showSignalStrip = false
+  showSignalStrip = false,
+  signalStripTone = "home"
 }: MarketDiscoveryShellProps) {
   const [activeCategory, setActiveCategory] = useState<DiscoveryCategory>(initialCategory);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
@@ -91,6 +93,7 @@ export function MarketDiscoveryShell({
             markets={markets}
             activeCategory={deferredCategory}
             activeFocus={deferredFocus}
+            tone={signalStripTone}
             onSelectSignalBoard={(focus, category) => {
               startBoardTransition(() => {
                 setActiveFocus(focus);

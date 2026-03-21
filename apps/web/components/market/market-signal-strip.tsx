@@ -10,6 +10,7 @@ type MarketSignalStripProps = {
   activeCategory: DiscoveryCategory;
   activeFocus: DiscoveryFocus;
   onSelectSignalBoard: (focus: DiscoveryFocus, category: DiscoveryCategory) => void;
+  tone?: "home" | "catalog";
 };
 
 function byVolumeDesc(a: Market, b: Market) {
@@ -42,7 +43,8 @@ export function MarketSignalStrip({
   markets,
   activeCategory,
   activeFocus,
-  onSelectSignalBoard
+  onSelectSignalBoard,
+  tone = "home"
 }: MarketSignalStripProps) {
   const trendingMarkets = [...markets].sort(byVolumeDesc).slice(0, 3);
   const endingSoonMarkets = [...markets]
@@ -53,8 +55,11 @@ export function MarketSignalStrip({
   const endingSoonCategories = getSignalCategories(endingSoonMarkets);
 
   return (
-    <section className="signal-strip" aria-label="Market signals">
-      <div className="signal-strip__cluster">
+    <section
+      className={`signal-strip${tone === "catalog" ? " signal-strip--catalog" : ""}`}
+      aria-label="Market signals"
+    >
+      <div className={`signal-strip__cluster${tone === "catalog" ? " signal-strip__cluster--catalog" : ""}`}>
         <div className="signal-strip__cluster-head">
           <div className="signal-strip__copy-block">
             <button
@@ -105,7 +110,11 @@ export function MarketSignalStrip({
         </div>
       </div>
 
-      <div className="signal-strip__cluster signal-strip__cluster--quiet">
+      <div
+        className={`signal-strip__cluster signal-strip__cluster--quiet${
+          tone === "catalog" ? " signal-strip__cluster--catalog" : ""
+        }`}
+      >
         <div className="signal-strip__cluster-head">
           <div className="signal-strip__copy-block">
             <button

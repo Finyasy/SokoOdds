@@ -93,6 +93,10 @@ test("signal strip controls open focused discovery boards and keep active state 
 test("markets page stays feed-first and shows the expanded launch catalogue", async ({ page }) => {
   await page.goto("/markets");
 
+  await expect(page.getByLabel("Market signals")).toBeVisible();
+  await expect(
+    page.getByLabel("Market signals").getByRole("button", { name: "Trending now", exact: true })
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {
@@ -117,6 +121,13 @@ test("market board filters in place by category", async ({ page }) => {
       name: /Gor Mahia above AFC Leopards\?/i
     })
   ).toHaveCount(0);
+
+  await page.getByLabel("Market signals").getByRole("button", { name: "Ending soon economy" }).click();
+
+  await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(
+    page.getByLabel("Market search input")
+  ).toHaveAttribute("placeholder", "Search ending soon economy...");
 });
 
 test("market detail opens with the first-time WhatsApp prompt", async ({ page }) => {
