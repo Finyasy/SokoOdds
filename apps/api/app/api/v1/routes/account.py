@@ -17,6 +17,9 @@ from app.schemas.account import (
     WalletDepositStatusResponse,
     WalletVerifyRequest,
     WalletVerifyResponse,
+    WalletWithdrawalRequest,
+    WalletWithdrawalResponse,
+    WalletWithdrawalStatusResponse,
 )
 from app.services.account_access import (
     AccountAccessService,
@@ -156,6 +159,94 @@ async def receive_wallet_deposit_callback(
 
     try:
         await account_service.process_stk_callback(callback_payload=callback_payload)
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return {"ResultCode": "0", "ResultDesc": "Accepted"}
+
+
+@router.post(
+    "/wallet/withdraw",
+    status_code=status.HTTP_200_OK,
+    response_model=WalletWithdrawalResponse,
+)
+async def initiate_wallet_withdrawal(
+    payload: WalletWithdrawalRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> WalletWithdrawalResponse:
+    try:
+        result = await account_service.initiate_wallet_withdrawal(
+            user_id=account.user.id,
+            amount=Decimal(payload.amountKes),
+        )
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    return WalletWithdrawalResponse(
+        status=result.status,
+        withdrawalReference=result.withdrawal_reference,
+        requestedAmountKes=f"{result.requested_amount:.2f}",
+        reviewRequired=result.review_required,
+        customerMessage=result.customer_message,
+        account=result.account.to_response_model(),
+    )
+
+
+@router.get(
+    "/wallet/withdraw/{withdrawal_reference}",
+    status_code=status.HTTP_200_OK,
+    response_model=WalletWithdrawalStatusResponse,
+)
+async def get_wallet_withdrawal_status(
+    withdrawal_reference: str,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> WalletWithdrawalStatusResponse:
+    try:
+        return await account_service.get_withdrawal_status(
+            user_id=account.user.id,
+            withdrawal_reference=withdrawal_reference,
+        )
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/wallet/withdraw/callback", status_code=status.HTTP_200_OK)
+async def receive_wallet_withdraw_callback(
+    request: Request,
+    account_service: AccountServiceDep,
+    token: Annotated[str | None, Query()] = None,
+    signature: Annotated[str | None, Header(alias="X-SokoOdds-Callback-Signature")] = None,
+) -> dict[str, str]:
+    if token != settings.daraja_callback_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid callback token.",
+        )
+
+    raw_body = await request.body()
+    verify_callback_origin(request, raw_body, signature)
+
+    try:
+        parsed_payload = json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Callback payload must be valid JSON.",
+        ) from exc
+
+    if not isinstance(parsed_payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Callback payload must be a JSON object.",
+        )
+    callback_payload = cast(dict[str, object], parsed_payload)
+
+    try:
+        await account_service.process_b2c_callback(callback_payload=callback_payload)
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

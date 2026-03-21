@@ -263,6 +263,33 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 - repeated callbacks for the same checkout request are safe to replay and must not double-credit the wallet
 - failed callbacks mark the deposit `failed` and leave wallet balances unchanged
 
+### M-Pesa Withdrawal Endpoint
+
+`POST /api/v1/wallet/withdraw`
+
+### M-Pesa Withdrawal Rules
+
+- the request requires an authenticated session and a verified M-Pesa wallet
+- the requested amount moves from `available balance` into `reserved funds` immediately
+- withdrawals above `WITHDRAWAL_REVIEW_THRESHOLD_KES` enter `review_required`
+- total daily requested withdrawals above `WITHDRAWAL_DAILY_LIMIT_KES` are rejected
+- low-value withdrawals initiate Daraja B2C immediately
+
+### M-Pesa Withdrawal Status Endpoint
+
+`GET /api/v1/wallet/withdraw/{withdrawalReference}`
+
+### M-Pesa Withdrawal Callback Endpoint
+
+`POST /api/v1/wallet/withdraw/callback?token=<callback-token>`
+
+### M-Pesa Withdrawal Callback Rules
+
+- callback ingress uses the same token, allowlist, trusted-proxy, and optional signature checks as deposit callbacks
+- successful callbacks release the held withdrawal funds from `reserved` and finalize the payout
+- failed callbacks release the held amount back to `available balance`
+- repeated callbacks for the same conversation are safe to replay and must not double-release funds
+
 ### Session Revocation Endpoint
 
 `DELETE /api/v1/auth/session`

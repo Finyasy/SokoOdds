@@ -16,13 +16,14 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.database import get_async_session
-from app.integrations.daraja import DarajaConfigurationError, daraja_client
-from app.models import Deposit, LedgerEntry, User, UserSession, Wallet
+from app.integrations.daraja import B2CPayoutResult, DarajaConfigurationError, daraja_client
+from app.models import Deposit, LedgerEntry, User, UserSession, Wallet, Withdrawal
 from app.schemas.account import (
     AccountSnapshotResponse,
     AccountUserResponse,
     WalletDepositStatusResponse,
     WalletResponse,
+    WalletWithdrawalStatusResponse,
 )
 from app.services.order_intake import quantize_money
 from fastapi import Depends, Header, HTTPException, status
@@ -45,6 +46,15 @@ class WalletFundingError(Exception):
 class StkCallback:
     checkout_request_id: str
     merchant_request_id: str
+    result_code: int
+    result_desc: str
+    mpesa_receipt_number: str | None
+
+
+@dataclass(frozen=True)
+class B2CCallback:
+    conversation_id: str
+    originator_conversation_id: str
     result_code: int
     result_desc: str
     mpesa_receipt_number: str | None
@@ -112,6 +122,17 @@ class WalletDepositResult:
     account: AccountSnapshot
 
 
+@dataclass(frozen=True)
+class WalletWithdrawalResult:
+    status: str
+    withdrawal_reference: str
+    requested_amount: Decimal
+    released_amount: Decimal
+    review_required: bool
+    customer_message: str | None
+    account: AccountSnapshot
+
+
 def snapshot_from_models(user: User, wallet: Wallet) -> AccountSnapshot:
     return AccountSnapshot(
         user_id=user.id,
@@ -136,6 +157,10 @@ class AccountAccessService:
         self.session = session
         self.session_ttl = session_ttl
         self.verification_credit_amount = quantize_money(verification_credit_amount)
+        self.withdrawal_review_threshold = quantize_money(
+            Decimal(settings.withdrawal_review_threshold_kes)
+        )
+        self.withdrawal_daily_limit = quantize_money(Decimal(settings.withdrawal_daily_limit_kes))
 
     async def onboard_account(self, *, first_name: str, phone: str) -> OnboardAccountResult:
         normalized_phone = normalize_phone(phone)
@@ -337,6 +362,133 @@ class AccountAccessService:
             account=account,
         )
 
+    async def initiate_wallet_withdrawal(
+        self,
+        *,
+        user_id: str,
+        amount: Decimal,
+    ) -> WalletWithdrawalResult:
+        requested_amount = quantize_money(amount)
+        if requested_amount <= Decimal("0.00"):
+            raise WalletFundingError("Withdrawal amount must be greater than zero.")
+
+        async with self._transaction():
+            user = await self._get_user_for_update(user_id)
+            if user is None:
+                raise AuthenticationError("Authenticated user was not found.")
+            if user.mpesa_verified_at is None or user.mpesa_phone is None:
+                raise WalletFundingError("Verify your M-Pesa wallet before withdrawing.")
+
+            wallet = await self._get_or_create_wallet_for_update(user.id)
+            if wallet.available_balance < requested_amount:
+                raise WalletFundingError("Insufficient available balance for this withdrawal.")
+
+            daily_total = await self._get_daily_withdrawal_total(user.id)
+            if daily_total + requested_amount > self.withdrawal_daily_limit:
+                raise WalletFundingError("Withdrawal would exceed the daily limit.")
+
+            withdrawal_reference = f"mpesa-withdraw-{uuid4()}"
+            requires_review = requested_amount > self.withdrawal_review_threshold
+            wallet.available_balance = quantize_money(wallet.available_balance - requested_amount)
+            wallet.reserved_balance = quantize_money(wallet.reserved_balance + requested_amount)
+
+            customer_message = (
+                "Withdrawal queued for manual review."
+                if requires_review
+                else f"M-Pesa withdrawal initiated for {user.mpesa_phone}"
+            )
+            status = "review_required" if requires_review else "pending"
+            payout_result: B2CPayoutResult | None = None
+
+            if not requires_review:
+                try:
+                    payout_result = await daraja_client.request_b2c_payout(
+                        phone=user.mpesa_phone,
+                        amount=f"{requested_amount:.2f}",
+                    )
+                except DarajaConfigurationError as exc:
+                    raise WalletFundingError(str(exc)) from exc
+                except Exception as exc:  # pragma: no cover
+                    raise WalletFundingError("Could not initiate the M-Pesa withdrawal.") from exc
+
+                customer_message = payout_result.response_description
+
+            self.session.add(
+                Withdrawal(
+                    id=withdrawal_reference,
+                    user_id=user.id,
+                    phone=user.mpesa_phone,
+                    amount=requested_amount,
+                    currency="KES",
+                    provider="daraja",
+                    status=status,
+                    requires_review=requires_review,
+                    conversation_id=(
+                        payout_result.conversation_id if payout_result is not None else None
+                    ),
+                    originator_conversation_id=(
+                        payout_result.originator_conversation_id
+                        if payout_result is not None
+                        else None
+                    ),
+                    result_code=None,
+                    result_desc=None,
+                    mpesa_receipt_number=None,
+                    callback_received_at=None,
+                    completed_at=None,
+                    failed_at=None,
+                )
+            )
+            self.session.add(
+                LedgerEntry(
+                    id=str(uuid4()),
+                    user_id=user.id,
+                    entry_type="MPESA_WITHDRAWAL_HOLD",
+                    amount=-requested_amount,
+                    currency=wallet.currency,
+                    reference_type="withdrawal",
+                    reference_id=withdrawal_reference,
+                    available_balance_after=wallet.available_balance,
+                    reserved_balance_after=wallet.reserved_balance,
+                    note=f"M-Pesa withdrawal hold for {user.mpesa_phone}",
+                )
+            )
+
+        if (
+            settings.daraja_mode == "stub"
+            and settings.daraja_stub_auto_complete
+            and not requires_review
+            and payout_result is not None
+        ):
+            await self.process_b2c_callback(
+                callback_payload=build_stub_b2c_callback_payload(
+                    conversation_id=payout_result.conversation_id,
+                    originator_conversation_id=payout_result.originator_conversation_id,
+                    amount=requested_amount,
+                    phone=user.mpesa_phone,
+                )
+            )
+
+        withdrawal = await self.get_withdrawal_by_reference(
+            user_id=user_id,
+            withdrawal_reference=withdrawal_reference,
+        )
+        account = await self._load_account_snapshot(user_id)
+        if withdrawal is None or account is None:
+            raise WalletFundingError("Could not refresh the wallet after withdrawal initiation.")
+
+        return WalletWithdrawalResult(
+            status=withdrawal.status,
+            withdrawal_reference=withdrawal_reference,
+            requested_amount=requested_amount,
+            released_amount=(
+                requested_amount if withdrawal.status == "completed" else Decimal("0.00")
+            ),
+            review_required=withdrawal.requires_review,
+            customer_message=customer_message,
+            account=account,
+        )
+
     @asynccontextmanager
     async def _transaction(self):
         if self.session.in_transaction():
@@ -408,6 +560,20 @@ class AccountAccessService:
         )
         return result.scalar_one_or_none()
 
+    async def get_withdrawal_by_reference(
+        self,
+        *,
+        user_id: str,
+        withdrawal_reference: str,
+    ) -> Withdrawal | None:
+        result = await self.session.execute(
+            select(Withdrawal).where(
+                Withdrawal.id == withdrawal_reference,
+                Withdrawal.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def get_deposit_status(
         self,
         *,
@@ -432,6 +598,34 @@ class AccountAccessService:
             creditedAmountKes=(
                 f"{deposit.amount if deposit.status == 'completed' else Decimal('0.00'):.2f}"
             ),
+            account=account.to_response_model(),
+        )
+
+    async def get_withdrawal_status(
+        self,
+        *,
+        user_id: str,
+        withdrawal_reference: str,
+    ) -> WalletWithdrawalStatusResponse:
+        withdrawal = await self.get_withdrawal_by_reference(
+            user_id=user_id,
+            withdrawal_reference=withdrawal_reference,
+        )
+        if withdrawal is None:
+            raise WalletFundingError("Withdrawal reference was not found.")
+
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        return WalletWithdrawalStatusResponse(
+            status=withdrawal.status,
+            withdrawalReference=withdrawal.id,
+            requestedAmountKes=f"{withdrawal.amount:.2f}",
+            releasedAmountKes=(
+                f"{withdrawal.amount if withdrawal.status == 'completed' else Decimal('0.00'):.2f}"
+            ),
+            reviewRequired=withdrawal.requires_review,
             account=account.to_response_model(),
         )
 
@@ -482,6 +676,92 @@ class AccountAccessService:
                     note=f"M-Pesa deposit confirmed for {deposit.phone}",
                 )
             )
+
+    async def process_b2c_callback(self, *, callback_payload: dict[str, object]) -> None:
+        callback = extract_b2c_callback(callback_payload)
+        if callback is None:
+            raise WalletFundingError("Callback payload did not contain b2c result data.")
+
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Withdrawal)
+                .where(Withdrawal.conversation_id == callback.conversation_id)
+                .with_for_update()
+            )
+            withdrawal = result.scalar_one_or_none()
+            if withdrawal is None:
+                raise WalletFundingError(
+                    "Withdrawal callback did not match an existing withdrawal."
+                )
+
+            withdrawal.callback_received_at = datetime.now(UTC)
+            withdrawal.result_code = callback.result_code
+            withdrawal.result_desc = callback.result_desc
+            withdrawal.mpesa_receipt_number = callback.mpesa_receipt_number
+
+            if withdrawal.completed_at is not None:
+                withdrawal.status = "completed"
+                return
+            if withdrawal.failed_at is not None:
+                withdrawal.status = "failed"
+                return
+
+            wallet = await self._get_or_create_wallet_for_update(withdrawal.user_id)
+            if callback.result_code != 0:
+                wallet.available_balance = quantize_money(
+                    wallet.available_balance + withdrawal.amount
+                )
+                wallet.reserved_balance = quantize_money(
+                    wallet.reserved_balance - withdrawal.amount
+                )
+                withdrawal.status = "failed"
+                withdrawal.failed_at = datetime.now(UTC)
+                self.session.add(
+                    LedgerEntry(
+                        id=str(uuid4()),
+                        user_id=withdrawal.user_id,
+                        entry_type="MPESA_WITHDRAWAL_RELEASE",
+                        amount=withdrawal.amount,
+                        currency=wallet.currency,
+                        reference_type="withdrawal",
+                        reference_id=withdrawal.id,
+                        available_balance_after=wallet.available_balance,
+                        reserved_balance_after=wallet.reserved_balance,
+                        note=f"M-Pesa withdrawal released back to wallet for {withdrawal.phone}",
+                    )
+                )
+                return
+
+            wallet.reserved_balance = quantize_money(wallet.reserved_balance - withdrawal.amount)
+            withdrawal.status = "completed"
+            withdrawal.completed_at = datetime.now(UTC)
+            self.session.add(
+                LedgerEntry(
+                    id=str(uuid4()),
+                    user_id=withdrawal.user_id,
+                    entry_type="MPESA_WITHDRAWAL",
+                    amount=Decimal("0.00"),
+                    currency=wallet.currency,
+                    reference_type="withdrawal",
+                    reference_id=withdrawal.id,
+                    available_balance_after=wallet.available_balance,
+                    reserved_balance_after=wallet.reserved_balance,
+                    note=f"M-Pesa withdrawal completed for {withdrawal.phone}",
+                )
+            )
+
+    async def _get_daily_withdrawal_total(self, user_id: str) -> Decimal:
+        day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        result = await self.session.execute(
+            select(Withdrawal.amount).where(
+                Withdrawal.user_id == user_id,
+                Withdrawal.created_at >= day_start,
+                Withdrawal.status.in_(("pending", "review_required", "completed")),
+            )
+        )
+        amounts = result.scalars().all()
+        total = sum((quantize_money(amount) for amount in amounts), Decimal("0.00"))
+        return quantize_money(total)
 
 
 async def get_account_access_service(
@@ -584,5 +864,71 @@ def build_stub_callback_payload(
                     ]
                 },
             }
+        }
+    }
+
+
+def extract_b2c_callback(payload: dict[str, object]) -> B2CCallback | None:
+    result = payload.get("Result")
+    if not isinstance(result, dict):
+        return None
+
+    result_dict = cast(dict[str, object], result)
+    conversation_id = result_dict.get("ConversationID")
+    originator_conversation_id = result_dict.get("OriginatorConversationID")
+    result_code = result_dict.get("ResultCode")
+    result_desc = result_dict.get("ResultDesc")
+    receipt_number: str | None = None
+
+    result_parameters = result_dict.get("ResultParameters")
+    if isinstance(result_parameters, dict):
+        params_dict = cast(dict[str, object], result_parameters)
+        params = params_dict.get("ResultParameter")
+        if isinstance(params, list):
+            params_list = cast(list[object], params)
+            for item in params_list:
+                if not isinstance(item, dict):
+                    continue
+                item_dict = cast(dict[str, object], item)
+                item_key = item_dict.get("Key")
+                item_value = item_dict.get("Value")
+                if item_key == "TransactionReceipt" and isinstance(item_value, str):
+                    receipt_number = item_value
+
+    if not isinstance(conversation_id, str) or not isinstance(originator_conversation_id, str):
+        return None
+    if not isinstance(result_code, int) or not isinstance(result_desc, str):
+        return None
+
+    return B2CCallback(
+        conversation_id=conversation_id,
+        originator_conversation_id=originator_conversation_id,
+        result_code=result_code,
+        result_desc=result_desc,
+        mpesa_receipt_number=receipt_number,
+    )
+
+
+def build_stub_b2c_callback_payload(
+    *,
+    conversation_id: str,
+    originator_conversation_id: str,
+    amount: Decimal,
+    phone: str,
+) -> dict[str, object]:
+    receipt = f"B2C{sha256(f'{conversation_id}:{phone}'.encode()).hexdigest()[:10].upper()}"
+    return {
+        "Result": {
+            "ConversationID": conversation_id,
+            "OriginatorConversationID": originator_conversation_id,
+            "ResultCode": 0,
+            "ResultDesc": "The service request is processed successfully.",
+            "ResultParameters": {
+                "ResultParameter": [
+                    {"Key": "TransactionAmount", "Value": float(amount)},
+                    {"Key": "TransactionReceipt", "Value": receipt},
+                    {"Key": "ReceiverPartyPublicName", "Value": phone},
+                ]
+            },
         }
     }

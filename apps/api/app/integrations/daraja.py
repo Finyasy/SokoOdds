@@ -20,6 +20,14 @@ class StkPushResult:
     response_code: str
 
 
+@dataclass(frozen=True)
+class B2CPayoutResult:
+    conversation_id: str
+    originator_conversation_id: str
+    response_description: str
+    response_code: str
+
+
 class DarajaConfigurationError(Exception):
     pass
 
@@ -75,6 +83,64 @@ class DarajaClient:
             merchant_request_id=str(data["MerchantRequestID"]),
             checkout_request_id=str(data["CheckoutRequestID"]),
             customer_message=str(data["CustomerMessage"]),
+            response_code=str(data["ResponseCode"]),
+        )
+
+    async def request_b2c_payout(
+        self,
+        *,
+        phone: str,
+        amount: str,
+        command_id: str = "BusinessPayment",
+    ) -> B2CPayoutResult:
+        if settings.daraja_mode == "stub":
+            return B2CPayoutResult(
+                conversation_id=f"stub-conversation-{uuid4()}",
+                originator_conversation_id=f"stub-originator-{uuid4()}",
+                response_description=f"M-Pesa withdrawal initiated for {phone}",
+                response_code="0",
+            )
+
+        token = await self._get_access_token(scope="sandbox")
+        if not settings.daraja_b2c_initiator_name or not settings.daraja_b2c_security_credential:
+            raise DarajaConfigurationError(
+                "Daraja B2C initiator name and security credential are required in sandbox mode."
+            )
+        if not settings.daraja_shortcode:
+            raise DarajaConfigurationError("Daraja shortcode is required in sandbox mode.")
+
+        payload = {
+            "InitiatorName": settings.daraja_b2c_initiator_name,
+            "SecurityCredential": settings.daraja_b2c_security_credential,
+            "CommandID": command_id,
+            "Amount": int(float(amount)),
+            "PartyA": settings.daraja_shortcode,
+            "PartyB": phone,
+            "Remarks": "SokoOdds withdrawal",
+            "QueueTimeOutURL": (
+                f"{settings.daraja_b2c_timeout_base_url.rstrip('/')}"
+                f"/api/v1/wallet/withdraw/callback?token={settings.daraja_callback_token}"
+            ),
+            "ResultURL": (
+                f"{settings.daraja_b2c_result_base_url.rstrip('/')}"
+                f"/api/v1/wallet/withdraw/callback?token={settings.daraja_callback_token}"
+            ),
+            "Occasion": "SokoOddsWithdrawal",
+        }
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://sandbox.safaricom.co.ke/mpesa/b2c/v3/paymentrequest",
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        return B2CPayoutResult(
+            conversation_id=str(data["ConversationID"]),
+            originator_conversation_id=str(data["OriginatorConversationID"]),
+            response_description=str(data["ResponseDescription"]),
             response_code=str(data["ResponseCode"]),
         )
 

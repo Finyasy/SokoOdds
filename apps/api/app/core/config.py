@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     daraja_callback_trusted_proxy_ips: str = "127.0.0.1,::1,testclient"
     daraja_callback_signature_secret: str = ""
     daraja_stub_auto_complete: bool = True
+    daraja_b2c_initiator_name: str = ""
+    daraja_b2c_security_credential: str = ""
+    daraja_b2c_result_base_url: str = "http://localhost:8000"
+    daraja_b2c_timeout_base_url: str = "http://localhost:8000"
+    withdrawal_review_threshold_kes: str = "2500.00"
+    withdrawal_daily_limit_kes: str = "5000.00"
     seed_demo_markets_on_startup: bool = False
     log_level: str = "INFO"
 

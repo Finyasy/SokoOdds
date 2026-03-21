@@ -47,6 +47,24 @@ export type WalletDepositStatusResponse = {
   account: AccountSnapshot;
 };
 
+export type WalletWithdrawalResponse = {
+  status: string;
+  withdrawalReference: string;
+  requestedAmountKes: string;
+  reviewRequired: boolean;
+  customerMessage: string | null;
+  account: AccountSnapshot;
+};
+
+export type WalletWithdrawalStatusResponse = {
+  status: string;
+  withdrawalReference: string;
+  requestedAmountKes: string;
+  releasedAmountKes: string;
+  reviewRequired: boolean;
+  account: AccountSnapshot;
+};
+
 type AccountApiErrorShape = {
   detail?: string;
   error?: string;
@@ -160,6 +178,40 @@ export async function fetchWalletDepositStatus(
   const payload = await readJson<WalletDepositStatusResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.account) {
     throw new Error(getErrorMessage(payload, "Could not read the deposit status."));
+  }
+
+  return payload;
+}
+
+export async function withdrawFromWallet(input: {
+  amountKes: string;
+}): Promise<WalletWithdrawalResponse> {
+  const response = await fetch("/api/account/withdraw", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+
+  const payload = await readJson<WalletWithdrawalResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account) {
+    throw new Error(getErrorMessage(payload, "Could not initiate the M-Pesa withdrawal."));
+  }
+
+  return payload;
+}
+
+export async function fetchWalletWithdrawalStatus(
+  withdrawalReference: string
+): Promise<WalletWithdrawalStatusResponse> {
+  const response = await fetch(`/api/account/withdraw/${withdrawalReference}`, {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<WalletWithdrawalStatusResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account) {
+    throw new Error(getErrorMessage(payload, "Could not read the withdrawal status."));
   }
 
   return payload;

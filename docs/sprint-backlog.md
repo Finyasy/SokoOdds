@@ -95,6 +95,7 @@ Current shipped behavior:
 - verified users can now initiate a small M-Pesa top-up through a real deposit record and callback lifecycle while keeping the same wallet-sheet UX
 - callback handling now supports token validation, optional body-signature verification, and allowlisted source IP enforcement for safer Daraja ingestion
 - the market page can submit a first authenticated sample order and reflect available versus reserved balances
+- verified wallets can now initiate a first withdrawal request, move the amount into reserved funds, and complete a small B2C-style payout path in stub mode
 
 Still pending in later sprints:
 

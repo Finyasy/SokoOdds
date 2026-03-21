@@ -67,3 +67,25 @@ class WalletDepositStatusResponse(BaseModel):
     requestedAmountKes: str
     creditedAmountKes: str
     account: AccountSnapshotResponse
+
+
+class WalletWithdrawalRequest(BaseModel):
+    amountKes: str = Field(pattern=r"^\d+(\.\d{1,2})?$")
+
+
+class WalletWithdrawalResponse(BaseModel):
+    status: str
+    withdrawalReference: str
+    requestedAmountKes: str
+    reviewRequired: bool
+    customerMessage: str | None = None
+    account: AccountSnapshotResponse
+
+
+class WalletWithdrawalStatusResponse(BaseModel):
+    status: str
+    withdrawalReference: str
+    requestedAmountKes: str
+    releasedAmountKes: str
+    reviewRequired: bool
+    account: AccountSnapshotResponse

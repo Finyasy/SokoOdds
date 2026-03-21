@@ -139,6 +139,61 @@ class FakeAccountService:
             },
         )()
 
+    async def initiate_wallet_withdrawal(self, *, user_id: str, amount: Decimal):
+        return type(
+            "WithdrawalResult",
+            (),
+            {
+                "status": "completed",
+                "withdrawal_reference": "mpesa-withdraw-1",
+                "requested_amount": amount,
+                "released_amount": amount,
+                "review_required": False,
+                "customer_message": "M-Pesa withdrawal initiated.",
+                "account": AuthenticatedAccount(
+                    user=User(
+                        id=user_id,
+                        first_name="Bryan",
+                        phone="0796851024",
+                        mpesa_phone="0796851024",
+                        mpesa_verified_at=datetime.now(UTC),
+                    ),
+                    wallet=Wallet(
+                        user_id=user_id,
+                        currency="KES",
+                        available_balance=Decimal("305.00"),
+                        reserved_balance=Decimal("0.00"),
+                    ),
+                    session=UserSession(
+                        id="session-1",
+                        user_id=user_id,
+                        token_hash="hash",
+                        expires_at=datetime.now(UTC) + timedelta(days=30),
+                        last_seen_at=datetime.now(UTC),
+                        revoked_at=None,
+                    ),
+                ).to_snapshot(),
+            },
+        )()
+
+    async def get_withdrawal_status(self, *, user_id: str, withdrawal_reference: str):
+        assert user_id == "user-1"
+        assert withdrawal_reference == "mpesa-withdraw-1"
+        return type(
+            "WithdrawalStatus",
+            (),
+            {
+                "status": "completed",
+                "withdrawalReference": withdrawal_reference,
+                "requestedAmountKes": "200.00",
+                "releasedAmountKes": "200.00",
+                "reviewRequired": False,
+                "account": build_withdrawn_authenticated_account()
+                .to_snapshot()
+                .to_response_model(),
+            },
+        )()
+
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         self.callback_payloads.append(callback_payload)
 
@@ -182,6 +237,32 @@ def build_funded_authenticated_account() -> AuthenticatedAccount:
             user_id="user-1",
             currency="KES",
             available_balance=Decimal("505.00"),
+            reserved_balance=Decimal("0.00"),
+        ),
+        session=UserSession(
+            id="session-1",
+            user_id="user-1",
+            token_hash="hash",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            last_seen_at=datetime.now(UTC),
+            revoked_at=None,
+        ),
+    )
+
+
+def build_withdrawn_authenticated_account() -> AuthenticatedAccount:
+    return AuthenticatedAccount(
+        user=User(
+            id="user-1",
+            first_name="Bryan",
+            phone="0796851024",
+            mpesa_phone="0796851024",
+            mpesa_verified_at=datetime.now(UTC),
+        ),
+        wallet=Wallet(
+            user_id="user-1",
+            currency="KES",
+            available_balance=Decimal("305.00"),
             reserved_balance=Decimal("0.00"),
         ),
         session=UserSession(
@@ -285,6 +366,34 @@ def test_wallet_deposit_status_returns_current_shape() -> None:
     assert payload["status"] == "completed"
     assert payload["creditedAmountKes"] == "500.00"
     assert payload["account"]["wallet"]["availableBalanceKes"] == "505.00"
+
+
+def test_wallet_withdrawal_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/wallet/withdraw",
+        json={"amountKes": "200.00"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["requestedAmountKes"] == "200.00"
+    assert payload["reviewRequired"] is False
+    assert payload["account"]["wallet"]["availableBalanceKes"] == "305.00"
+
+
+def test_wallet_withdrawal_status_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/wallet/withdraw/mpesa-withdraw-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["releasedAmountKes"] == "200.00"
+    assert payload["account"]["wallet"]["availableBalanceKes"] == "305.00"
 
 
 def test_wallet_deposit_callback_rejects_invalid_token() -> None:

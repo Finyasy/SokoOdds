@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from app.models import Base, Deposit, LedgerEntry, User, UserSession, Wallet
+from app.models import Base, Deposit, LedgerEntry, User, UserSession, Wallet, Withdrawal
 from app.services.account_access import AccountAccessService
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -111,3 +111,75 @@ async def test_wallet_deposit_credits_verified_wallet(async_session: AsyncSessio
     assert wallet is not None
     assert wallet.available_balance == Decimal("505.00")
     assert ledger_count == 2
+
+
+@pytest.mark.asyncio
+async def test_wallet_withdrawal_holds_and_completes_for_verified_wallet(
+    async_session: AsyncSession,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    await service.verify_mpesa(user_id=onboarded.account.user_id, phone="0712 345 678")
+    await service.initiate_wallet_deposit(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("500.00"),
+    )
+
+    result = await service.initiate_wallet_withdrawal(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("200.00"),
+    )
+    withdrawal = await async_session.scalar(
+        select(Withdrawal).where(Withdrawal.user_id == onboarded.account.user_id)
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
+    )
+
+    assert result.status == "completed"
+    assert result.released_amount == Decimal("200.00")
+    assert withdrawal is not None
+    assert withdrawal.status == "completed"
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("305.00")
+    assert wallet.reserved_balance == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_large_wallet_withdrawal_enters_review_required(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    await service.verify_mpesa(user_id=onboarded.account.user_id, phone="0712 345 678")
+    await service.initiate_wallet_deposit(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("3000.00"),
+    )
+
+    result = await service.initiate_wallet_withdrawal(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("2600.00"),
+    )
+    withdrawal = await async_session.scalar(
+        select(Withdrawal).where(Withdrawal.user_id == onboarded.account.user_id)
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
+    )
+
+    assert result.status == "review_required"
+    assert result.released_amount == Decimal("0.00")
+    assert withdrawal is not None
+    assert withdrawal.requires_review is True
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("405.00")
+    assert wallet.reserved_balance == Decimal("2600.00")

@@ -13,9 +13,11 @@ import {
 import {
   createAccountSession,
   fetchWalletDepositStatus,
+  fetchWalletWithdrawalStatus,
   fetchCurrentAccount,
   submitOrder as submitOrderRequest,
   topUpWallet,
+  withdrawFromWallet,
   type AccountSnapshot,
   type OrderSubmissionPayload,
   verifyMpesaWallet
@@ -39,6 +41,7 @@ type OnboardingState = {
 type AccountSheetView = "closed" | "account" | "verify";
 type VerificationState = "idle" | "submitting-account" | "sending" | "sent";
 type DepositState = "idle" | "sending" | "sent";
+type WithdrawalState = "idle" | "sending" | "sent" | "review";
 
 type OnboardingContextValue = {
   state: OnboardingState;
@@ -55,11 +58,15 @@ type OnboardingContextValue = {
     input: OrderSubmissionPayload
   ) => Promise<{ orderId: string; idempotencyStatus: string | null }>;
   requestWalletTopUp: (amountKes: number) => Promise<{ creditedAmountKes: string }>;
+  requestWalletWithdrawal: (
+    amountKes: number
+  ) => Promise<{ releasedAmountKes: string; status: "completed" | "pending" | "review_required" }>;
   dismissWhatsAppPrompt: () => void;
   joinWhatsAppAlerts: () => void;
   showWhatsAppPrompt: boolean;
   verificationState: VerificationState;
   depositState: DepositState;
+  withdrawalState: WithdrawalState;
   whatsappUrl: string;
 };
 
@@ -143,6 +150,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [showWhatsAppPrompt, setShowWhatsAppPrompt] = useState(false);
   const [verificationState, setVerificationState] = useState<VerificationState>("idle");
   const [depositState, setDepositState] = useState<DepositState>("idle");
+  const [withdrawalState, setWithdrawalState] = useState<WithdrawalState>("idle");
   const [accountError, setAccountError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -233,25 +241,29 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       showWhatsAppPrompt,
       verificationState,
       depositState,
+      withdrawalState,
       whatsappUrl: WHATSAPP_ALERTS_URL,
       accountError,
       openAccountSheet: () => {
         setAccountError(null);
         setVerificationState("idle");
         setDepositState("idle");
+        setWithdrawalState("idle");
         setAccountSheetView(state.isSignedIn ? "verify" : "account");
       },
       openVerificationSheet: () => {
         setAccountError(null);
         setVerificationState(state.mpesaVerified ? "sent" : "idle");
         setDepositState("idle");
+        setWithdrawalState("idle");
         setAccountSheetView("verify");
       },
       closeAccountSheet: () => {
         if (
           verificationState === "sending" ||
           verificationState === "submitting-account" ||
-          depositState === "sending"
+          depositState === "sending" ||
+          withdrawalState === "sending"
         ) {
           return;
         }
@@ -259,6 +271,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         setAccountSheetView("closed");
         setVerificationState(state.mpesaVerified ? "sent" : "idle");
         setDepositState("idle");
+        setWithdrawalState("idle");
       },
       submitAccountProfile: async ({ name, phone }) => {
         setAccountError(null);
@@ -298,6 +311,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
           }));
           setVerificationState("sent");
           setDepositState("idle");
+          setWithdrawalState("idle");
         } catch (error) {
           setVerificationState("idle");
           setAccountError(
@@ -342,6 +356,53 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
           throw error;
         }
       },
+      requestWalletWithdrawal: async (amountKes) => {
+        setAccountError(null);
+        setWithdrawalState("sending");
+
+        try {
+          const initiated = await withdrawFromWallet({
+            amountKes: amountKes.toFixed(2)
+          });
+          let latestStatus = initiated.status;
+          let latestAccount = initiated.account;
+          let releasedAmountKes = "0.00";
+
+          for (let attempt = 0; attempt < 6 && latestStatus === "pending"; attempt += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 350));
+            const status = await fetchWalletWithdrawalStatus(initiated.withdrawalReference);
+            latestStatus = status.status;
+            latestAccount = status.account;
+            releasedAmountKes = status.releasedAmountKes;
+          }
+
+          setState((current) => ({
+            ...current,
+            ...accountSnapshotToState(latestAccount)
+          }));
+          setWithdrawalState(
+            latestStatus === "review_required"
+              ? "review"
+              : latestStatus === "completed"
+                ? "sent"
+                : "idle"
+          );
+
+          return {
+            releasedAmountKes,
+            status:
+              latestStatus === "review_required" || latestStatus === "pending"
+                ? latestStatus
+                : "completed"
+          };
+        } catch (error) {
+          setWithdrawalState("idle");
+          setAccountError(
+            error instanceof Error ? error.message : "Could not initiate the M-Pesa withdrawal."
+          );
+          throw error;
+        }
+      },
       submitOrder: async (input) => {
         const result = await submitOrderRequest(input, generateIdempotencyKey());
 
@@ -381,7 +442,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       showWhatsAppPrompt,
       state,
       verificationState,
-      depositState
+      depositState,
+      withdrawalState
     ]
   );
 
@@ -482,9 +544,11 @@ function AccountSheet() {
     state,
     submitAccountProfile,
     requestWalletTopUp,
+    requestWalletWithdrawal,
     requestVerification,
     verificationState,
     depositState,
+    withdrawalState,
     accountError
   } = useOnboarding();
   const [name, setName] = useState(state.name);
@@ -507,6 +571,9 @@ function AccountSheet() {
   const isVerificationComplete = verificationState === "sent" || state.mpesaVerified;
   const isDepositSending = depositState === "sending";
   const isDepositComplete = depositState === "sent";
+  const isWithdrawalSending = withdrawalState === "sending";
+  const isWithdrawalComplete = withdrawalState === "sent";
+  const isWithdrawalReview = withdrawalState === "review";
 
   return (
     <div className="overlay-shell" role="presentation">
@@ -660,7 +727,7 @@ function AccountSheet() {
                 <div className="dialog-status">
                   <strong>Need a little more balance?</strong>
                   <p>
-                    Send a demo M-Pesa top-up and credit KES 500 to this wallet so you can keep
+                    Trigger a fast KES 500 M-Pesa top-up from the same wallet sheet so you can keep
                     trading after the first verification-funded order.
                   </p>
                 </div>
@@ -677,6 +744,34 @@ function AccountSheet() {
                   disabled={isDepositSending}
                 >
                   {isDepositSending ? "Sending M-Pesa prompt..." : "Add KES 500 via M-Pesa"}
+                </button>
+
+                <div className="dialog-status">
+                  <strong>Need to cash out?</strong>
+                  <p>
+                    Withdraw a small amount back to the same M-Pesa number. Larger requests move
+                    into review first so payouts stay safe.
+                  </p>
+                </div>
+                {isWithdrawalComplete ? (
+                  <div className="dialog-success" data-testid="wallet-withdrawal-success">
+                    <strong>KES 200 withdrawal completed.</strong>
+                    <p>Your wallet reserve has been released and the payout path completed.</p>
+                  </div>
+                ) : null}
+                {isWithdrawalReview ? (
+                  <div className="dialog-status" data-testid="wallet-withdrawal-review">
+                    <strong>Withdrawal queued for review.</strong>
+                    <p>We have held the funds and a higher-value payout now needs manual approval.</p>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="ghost-button primary-button--block"
+                  onClick={() => void requestWalletWithdrawal(200)}
+                  disabled={isWithdrawalSending || state.walletBalanceKes < 200}
+                >
+                  {isWithdrawalSending ? "Sending payout request..." : "Withdraw KES 200 to M-Pesa"}
                 </button>
               </div>
             ) : null}
