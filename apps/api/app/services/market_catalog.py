@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import Depends
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Annotated
 
 from app.core.database import get_async_session
 from app.models import Market
-from app.schemas.markets import MarketResponse
+from app.schemas.markets import MarketResponse, OrderBookResponse, TradePrintResponse
+from fastapi import Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _to_market_response(market: Market) -> MarketResponse:
@@ -27,8 +28,8 @@ def _to_market_response(market: Market) -> MarketResponse:
         resolutionSource=market.resolution_source,
         ruleHighlights=market.rule_highlights,
         trustNotes=market.trust_notes,
-        orderBook=market.order_book,
-        trades=market.trades,
+        orderBook=OrderBookResponse.model_validate(market.order_book),
+        trades=[TradePrintResponse.model_validate(trade) for trade in market.trades],
     )
 
 
@@ -51,6 +52,6 @@ class MarketCatalogService:
 
 
 def get_market_catalog_service(
-    session: AsyncSession = Depends(get_async_session),
+    session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> MarketCatalogService:
     return MarketCatalogService(session=session)

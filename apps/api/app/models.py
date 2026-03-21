@@ -19,7 +19,9 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(String(80), nullable=False)
     phone: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, index=True)
     mpesa_phone: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    mpesa_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    mpesa_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

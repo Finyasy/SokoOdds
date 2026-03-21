@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
 from app.models import Base, IdempotencyKey, LedgerEntry, Market, OutboxEvent, Wallet
 from app.schemas.orders import OrderCreateRequest
 from app.services.order_intake import IdempotencyConflictError, OrderIntakeService
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
 @pytest_asyncio.fixture
-async def async_session() -> AsyncSession:
+async def async_session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
 
     async with engine.begin() as connection:

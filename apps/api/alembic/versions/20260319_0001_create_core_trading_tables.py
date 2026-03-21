@@ -7,8 +7,8 @@ Create Date: 2026-03-19 00:00:01
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20260319_0001"
 down_revision = None
@@ -23,8 +23,18 @@ def upgrade() -> None:
         sa.Column("currency", sa.String(length=3), nullable=False),
         sa.Column("available_balance", sa.Numeric(18, 2), nullable=False),
         sa.Column("reserved_balance", sa.Numeric(18, 2), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
 
     op.create_table(
@@ -37,7 +47,12 @@ def upgrade() -> None:
         sa.Column("response_status", sa.Integer(), nullable=False),
         sa.Column("response_body", sa.JSON(), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.UniqueConstraint("user_id", "route", "idempotency_key", name="uq_idempotency_scope_key"),
     )
 
@@ -53,7 +68,12 @@ def upgrade() -> None:
         sa.Column("reserved_amount", sa.Numeric(18, 2), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("idempotency_key", sa.String(length=255), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
     op.create_index("ix_orders_user_id", "orders", ["user_id"])
     op.create_index("ix_orders_market_id", "orders", ["market_id"])
@@ -70,7 +90,12 @@ def upgrade() -> None:
         sa.Column("available_balance_after", sa.Numeric(18, 2), nullable=False),
         sa.Column("reserved_balance_after", sa.Numeric(18, 2), nullable=False),
         sa.Column("note", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
     op.create_index("ix_ledger_entries_user_id", "ledger_entries", ["user_id"])
 
@@ -82,7 +107,12 @@ def upgrade() -> None:
         sa.Column("aggregate_id", sa.String(length=64), nullable=False),
         sa.Column("payload", sa.JSON(), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
     )
     op.create_index("ix_outbox_events_topic", "outbox_events", ["topic"])
 

@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from fastapi.responses import JSONResponse
-
 from app.core.engine import EngineHealth, ensure_engine_ready_for_orders
 from app.schemas.orders import OrderCreateRequest
 from app.services.account_access import AuthenticatedAccount, get_optional_authenticated_account
@@ -16,6 +13,8 @@ from app.services.order_intake import (
     UnknownMarketError,
     get_order_intake_service,
 )
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
 

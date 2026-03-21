@@ -1,8 +1,9 @@
 from app.jobs.reconciliation import run_reconciliation_loop
 from app.runtime import select_worker_tasks
+from pytest import CaptureFixture
 
 
-def test_reconciliation_placeholder(capsys) -> None:
+def test_reconciliation_placeholder(capsys: CaptureFixture[str]) -> None:
     run_reconciliation_loop()
     captured = capsys.readouterr()
     assert "reconciliation loop" in captured.out

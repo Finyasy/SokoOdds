@@ -1,24 +1,25 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Any
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Annotated, Any
 from uuid import uuid4
-
-from fastapi import Depends
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
 from app.core.idempotency import make_request_hash
 from app.models import IdempotencyKey, LedgerEntry, Market, Order, OutboxEvent, Wallet
 from app.schemas.orders import OrderCreateRequest
+from fastapi import Depends
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 MONEY_PLACES = Decimal("0.01")
 ORDER_IDEMPOTENCY_TTL = timedelta(hours=24)
+AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_session)]
 
 
 class IdempotencyConflictError(Exception):
@@ -262,7 +263,7 @@ class OrderIntakeService:
         return result.scalar_one_or_none()
 
     @asynccontextmanager
-    async def _transaction(self):
+    async def _transaction(self) -> AsyncIterator[None]:
         if self.session.in_transaction():
             yield
             await self.session.commit()
@@ -273,7 +274,7 @@ class OrderIntakeService:
 
 
 def get_order_intake_service(
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncSessionDep,
 ) -> OrderIntakeService:
     from app.core.config import settings
 

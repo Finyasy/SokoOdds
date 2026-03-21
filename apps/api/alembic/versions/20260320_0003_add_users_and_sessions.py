@@ -7,8 +7,8 @@ Create Date: 2026-03-20 00:00:03
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20260320_0003"
 down_revision = "20260320_0002"
@@ -24,8 +24,18 @@ def upgrade() -> None:
         sa.Column("phone", sa.String(length=16), nullable=False),
         sa.Column("mpesa_phone", sa.String(length=16), nullable=True),
         sa.Column("mpesa_verified_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.UniqueConstraint("phone", name="uq_users_phone"),
     )
     op.create_index("ix_users_phone", "users", ["phone"])
@@ -38,7 +48,12 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.UniqueConstraint("token_hash", name="uq_user_sessions_token_hash"),
     )
     op.create_index("ix_user_sessions_user_id", "user_sessions", ["user_id"])

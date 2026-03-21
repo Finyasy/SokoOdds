@@ -3,14 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi.testclient import TestClient
-
 from app.main import app
 from app.services.order_intake import (
     IdempotencyConflictError,
     OrderSubmissionResult,
     get_order_intake_service,
 )
+from fastapi.testclient import TestClient
 
 
 @dataclass

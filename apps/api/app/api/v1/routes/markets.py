@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-
 from app.schemas.markets import MarketResponse
 from app.services.market_catalog import MarketCatalogService, get_market_catalog_service
+from fastapi import APIRouter, Depends, HTTPException, status
 
 router = APIRouter()
 

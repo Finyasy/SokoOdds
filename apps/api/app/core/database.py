@@ -1,15 +1,13 @@
 from collections.abc import AsyncIterator
 
+from app.core.config import settings
+from app.models import Base
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-
-from app.core.config import settings
-from app.models import Base
-
 
 engine = create_async_engine(settings.database_url, future=True)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)

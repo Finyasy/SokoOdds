@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,8 +11,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     market_engine_health_url: str = "http://localhost:9000/internal/health"
     require_engine_ready_for_orders: bool = False
-    engine_health_mode: str = "stub"
-    engine_health_fallback_status: str = "ready"
+    engine_health_mode: Literal["stub", "http"] = "stub"
+    engine_health_fallback_status: Literal["ready", "hydrating", "unreachable"] = "ready"
     engine_health_fallback_books_loaded: int = 3
     demo_user_default_wallet_balance: str = "25000.00"
     auth_session_ttl_hours: int = 720

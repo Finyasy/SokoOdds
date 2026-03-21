@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from app.models import Base, LedgerEntry, User, UserSession, Wallet
+from app.services.account_access import AccountAccessService
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.models import Base, LedgerEntry, User, UserSession, Wallet
-from app.services.account_access import AccountAccessService
-
 
 @pytest_asyncio.fixture
-async def async_session() -> AsyncSession:
+async def async_session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
 
     async with engine.begin() as connection:
@@ -39,7 +39,9 @@ async def test_onboard_creates_user_wallet_and_session(async_session: AsyncSessi
 
     user_count = await async_session.scalar(select(func.count()).select_from(User))
     session_count = await async_session.scalar(select(func.count()).select_from(UserSession))
-    wallet = await async_session.scalar(select(Wallet).where(Wallet.user_id == result.account.user_id))
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == result.account.user_id)
+    )
 
     assert result.account.first_name == "Bryan"
     assert result.account.phone == "0796851024"

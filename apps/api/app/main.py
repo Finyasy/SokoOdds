@@ -1,15 +1,15 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-
 from app.api.v1.router import api_router
+from app.bootstrap.demo_markets import seed_markets_if_empty
 from app.core.config import settings
 from app.core.database import get_session_factory
-from app.bootstrap.demo_markets import seed_markets_if_empty
+from fastapi import FastAPI
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     if settings.seed_demo_markets_on_startup:
         await seed_markets_if_empty(get_session_factory())
     yield

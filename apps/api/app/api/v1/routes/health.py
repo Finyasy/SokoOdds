@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from typing import Annotated
 
 from app.core.engine import EngineHealth, fetch_engine_health
+from fastapi import APIRouter, Depends
 
 router = APIRouter()
+EngineHealthDep = Annotated[EngineHealth, Depends(fetch_engine_health)]
 
 
 @router.get("/health")
@@ -12,7 +14,7 @@ async def healthcheck() -> dict[str, str]:
 
 @router.get("/health/order-intake")
 async def order_intake_health(
-    engine_health: EngineHealth = Depends(fetch_engine_health),
+    engine_health: EngineHealthDep,
 ) -> dict[str, str | int | bool | None]:
     return {
         "status": "ok",

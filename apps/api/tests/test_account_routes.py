@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from fastapi.testclient import TestClient
-
 from app.main import app
 from app.models import User, UserSession, Wallet
 from app.services.account_access import (
@@ -13,6 +11,7 @@ from app.services.account_access import (
     get_account_access_service,
     get_authenticated_account,
 )
+from fastapi.testclient import TestClient
 
 
 @dataclass

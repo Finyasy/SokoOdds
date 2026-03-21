@@ -2,18 +2,58 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from typing import TypedDict
 
 from app.models import Market
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+
+class OrderBookLevelSeed(TypedDict):
+    price: float
+    shares: int
+
+
+class OrderBookSeed(TypedDict):
+    yesBids: list[OrderBookLevelSeed]
+    noBids: list[OrderBookLevelSeed]
+
+
+class TradeSeed(TypedDict):
+    id: str
+    side: str
+    price: float
+    shares: int
+    time: str
+
+
+class MarketSeed(TypedDict):
+    id: str
+    slug: str
+    sort_order: int
+    category: str
+    status: str
+    question: str
+    short_label: str
+    summary: str
+    region: str
+    yes_price: Decimal
+    no_price: Decimal
+    volume_kes: Decimal
+    liquidity_kes: Decimal
+    closes_at: datetime
+    resolution_source: str
+    rule_highlights: list[str]
+    trust_notes: list[str]
+    order_book: OrderBookSeed
+    trades: list[TradeSeed]
 
 
 def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-DEMO_MARKETS: list[dict[str, object]] = [
+DEMO_MARKETS: list[MarketSeed] = [
     {
         "id": "demo-market-kenya-election",
         "slug": "nairobi-governor-bill-sign-before-june",
@@ -36,7 +76,10 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "rule_highlights": [
             "Resolves YES if a formal signing notice is published by June 30, 2026 at 6:00 PM EAT.",
             "Draft approvals, committee votes, or public promises do not count as final signature.",
-            "If the county publishes conflicting statements, the later official gazette-style notice governs.",
+            (
+                "If the county publishes conflicting statements, the later official gazette-style "
+                "notice governs."
+            ),
         ],
         "trust_notes": [
             "Resolution uses an official county source.",
@@ -67,7 +110,9 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "sort_order": 2,
         "category": "Football",
         "status": "Open",
-        "question": "Will Gor Mahia finish above AFC Leopards in the 2026 FKF Premier League table?",
+        "question": (
+            "Will Gor Mahia finish above AFC Leopards in the 2026 FKF Premier League table?"
+        ),
         "short_label": "Gor Mahia above AFC Leopards?",
         "summary": (
             "A league-table market based on final FKF Premier League standings at the end of the "
@@ -81,13 +126,19 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "closes_at": _dt("2026-09-12T17:00:00+03:00"),
         "resolution_source": "Official FKF Premier League final standings.",
         "rule_highlights": [
-            "Resolves YES if Gor Mahia ends the season in a strictly higher table position than AFC Leopards.",
+            (
+                "Resolves YES if Gor Mahia ends the season in a strictly higher table position "
+                "than AFC Leopards."
+            ),
             "If points are level, official league tiebreakers determine the result.",
             "If the season is abandoned with no official final table, the market resolves VOID.",
         ],
         "trust_notes": [
             "Resolution follows the final official league table only.",
-            "Closing states and pauses can be triggered near season-end controversy or sanctions news.",
+            (
+                "Closing states and pauses can be triggered near season-end controversy or "
+                "sanctions news."
+            ),
             "Users can review rule history in the audit panel once live.",
         ],
         "order_book": {
@@ -175,9 +226,15 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "closes_at": _dt("2026-07-31T18:00:00+03:00"),
         "resolution_source": "Kenya Meteorological Department seasonal rainfall summary.",
         "rule_highlights": [
-            "Resolves YES if the official county-level summary classifies rainfall as above normal.",
+            (
+                "Resolves YES if the official county-level summary classifies rainfall as above "
+                "normal."
+            ),
             "Private weather dashboards do not override the official publication.",
-            "If county-level classification is unavailable, the market resolves using the nearest official replacement note.",
+            (
+                "If county-level classification is unavailable, the market resolves using the "
+                "nearest official replacement note."
+            ),
         ],
         "trust_notes": [
             "Weather markets are resolved only from named official meteorological sources.",
@@ -222,7 +279,10 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "closes_at": _dt("2026-08-21T20:00:00+03:00"),
         "resolution_source": "Official promoter announcement and ticketing platform status.",
         "rule_highlights": [
-            "Resolves YES only if the official promoter or ticketing partner confirms sold-out status before opening night.",
+            (
+                "Resolves YES only if the official promoter or ticketing partner confirms "
+                "sold-out status before opening night."
+            ),
             "Social media rumors or unofficial reseller activity do not count.",
             "If the show is postponed, resolution follows the updated official terms.",
         ],
@@ -269,7 +329,10 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "closes_at": _dt("2026-10-31T17:00:00+03:00"),
         "resolution_source": "Official National Assembly record and Gazette notice.",
         "rule_highlights": [
-            "Resolves YES only after the nominee is formally approved and published through the official process.",
+            (
+                "Resolves YES only after the nominee is formally approved and published through "
+                "the official process."
+            ),
             "Committee recommendation alone does not count.",
             "If the nomination is withdrawn or lapses before approval, the market resolves NO.",
         ],
@@ -302,7 +365,9 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "sort_order": 7,
         "category": "Football",
         "status": "Open",
-        "question": "Will Kenya Police FC finish in the top three of the 2026 FKF Premier League season?",
+        "question": (
+            "Will Kenya Police FC finish in the top three of the 2026 FKF Premier League season?"
+        ),
         "short_label": "Kenya Police FC top 3 in FKF?",
         "summary": (
             "A standings market based on whether Kenya Police FC secures a final top-three finish "
@@ -317,12 +382,18 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "resolution_source": "Official FKF Premier League final standings.",
         "rule_highlights": [
             "Resolves YES if Kenya Police FC finishes first, second, or third in the final table.",
-            "Point deductions or disciplinary decisions count if they are part of the final official table.",
+            (
+                "Point deductions or disciplinary decisions count if they are part of the final "
+                "official table."
+            ),
             "If the season ends without an official final table, the market resolves VOID.",
         ],
         "trust_notes": [
             "Resolution waits for the final published FKF standings.",
-            "Table changes from late sanctions can pause settlement until the final official ruling lands.",
+            (
+                "Table changes from late sanctions can pause settlement until the final official "
+                "ruling lands."
+            ),
             "Sports markets retain a visible rule source and close time near the order ticket.",
         ],
         "order_book": {
@@ -410,7 +481,10 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "closes_at": _dt("2026-08-31T18:00:00+03:00"),
         "resolution_source": "Kenya Meteorological Department station observations.",
         "rule_highlights": [
-            "Resolves YES if official maximum temperatures exceed 33.0C on three consecutive days before the deadline.",
+            (
+                "Resolves YES if official maximum temperatures exceed 33.0C on three consecutive "
+                "days before the deadline."
+            ),
             "Unofficial app-based readings do not count.",
             "If one observation day is revised, the revised official record governs.",
         ],
@@ -457,7 +531,10 @@ DEMO_MARKETS: list[dict[str, object]] = [
         "closes_at": _dt("2026-11-07T17:00:00+03:00"),
         "resolution_source": "Official event promoter notice and ticketing status page.",
         "rule_highlights": [
-            "Resolves YES only if the official promoter or ticketing partner confirms sold out before gates open.",
+            (
+                "Resolves YES only if the official promoter or ticketing partner confirms sold "
+                "out before gates open."
+            ),
             "Reseller scarcity or social claims do not count.",
             "If the event is postponed, settlement follows the updated official ticketing terms.",
         ],
@@ -487,7 +564,9 @@ DEMO_MARKETS: list[dict[str, object]] = [
 ]
 
 
-async def seed_markets_if_empty(session_factory: async_sessionmaker) -> None:
+async def seed_markets_if_empty(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     async with session_factory() as session:
         async with session.begin():
             existing_markets = (await session.scalars(select(Market))).all()

@@ -3,10 +3,9 @@ from __future__ import annotations
 from typing import Literal
 
 import httpx
+from app.core.config import settings
 from fastapi import HTTPException, status
 from pydantic import BaseModel
-
-from app.core.config import settings
 
 
 class EngineHealth(BaseModel):

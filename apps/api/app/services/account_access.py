@@ -4,11 +4,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Annotated
 from uuid import uuid4
-
-from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import (
     create_session_token,
@@ -19,7 +16,14 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.database import get_async_session
 from app.models import LedgerEntry, User, UserSession, Wallet
+from app.schemas.account import AccountSnapshotResponse, AccountUserResponse, WalletResponse
 from app.services.order_intake import quantize_money
+from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_session)]
+AuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
 
 
 class AuthenticationError(Exception):
@@ -37,21 +41,21 @@ class AccountSnapshot:
     available_balance: Decimal
     reserved_balance: Decimal
 
-    def to_response_dict(self) -> dict[str, object]:
-        return {
-            "user": {
-                "id": self.user_id,
-                "firstName": self.first_name,
-                "phone": self.phone,
-                "mpesaPhone": self.mpesa_phone,
-                "mpesaVerified": self.mpesa_verified,
-            },
-            "wallet": {
-                "currency": self.currency,
-                "availableBalanceKes": f"{self.available_balance:.2f}",
-                "reservedBalanceKes": f"{self.reserved_balance:.2f}",
-            },
-        }
+    def to_response_model(self) -> AccountSnapshotResponse:
+        return AccountSnapshotResponse(
+            user=AccountUserResponse(
+                id=self.user_id,
+                firstName=self.first_name,
+                phone=self.phone,
+                mpesaPhone=self.mpesa_phone,
+                mpesaVerified=self.mpesa_verified,
+            ),
+            wallet=WalletResponse(
+                currency=self.currency,
+                availableBalanceKes=f"{self.available_balance:.2f}",
+                reservedBalanceKes=f"{self.reserved_balance:.2f}",
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -266,8 +270,8 @@ class AccountAccessService:
         return wallet
 
 
-def get_account_access_service(
-    session: AsyncSession = Depends(get_async_session),
+async def get_account_access_service(
+    session: AsyncSessionDep,
 ) -> AccountAccessService:
     return AccountAccessService(
         session=session,
@@ -277,8 +281,8 @@ def get_account_access_service(
 
 
 async def get_optional_authenticated_account(
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    account_service: AccountAccessService = Depends(get_account_access_service),
+    account_service: Annotated[AccountAccessService, Depends(get_account_access_service)],
+    authorization: AuthorizationHeader = None,
 ) -> AuthenticatedAccount | None:
     token = extract_bearer_token(authorization)
     if token is None:
@@ -288,7 +292,7 @@ async def get_optional_authenticated_account(
 
 
 async def get_authenticated_account(
-    account: AuthenticatedAccount | None = Depends(get_optional_authenticated_account),
+    account: Annotated[AuthenticatedAccount | None, Depends(get_optional_authenticated_account)],
 ) -> AuthenticatedAccount:
     if account is None:
         raise HTTPException(

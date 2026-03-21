@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi.testclient import TestClient
-
 from app.main import app
-from app.schemas.markets import MarketResponse
+from app.schemas.markets import MarketResponse, OrderBookResponse
 from app.services.market_catalog import get_market_catalog_service
+from fastapi.testclient import TestClient
 
 
 def build_market_response() -> MarketResponse:
@@ -27,7 +26,7 @@ def build_market_response() -> MarketResponse:
         resolutionSource="Official county release",
         ruleHighlights=["Rule 1"],
         trustNotes=["Trust note 1"],
-        orderBook={"yesBids": [], "noBids": []},
+        orderBook=OrderBookResponse(yesBids=[], noBids=[]),
         trades=[],
     )
 
