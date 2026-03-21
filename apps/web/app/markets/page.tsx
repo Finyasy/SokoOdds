@@ -35,6 +35,9 @@ export default async function MarketsPage({ searchParams }: MarketsPageProps) {
         initialCategory={initialCategory}
         initialFocus={initialFocus}
         initialSearchQuery={initialSearchQuery}
+        showSignalStrip
+        signalStripTone="catalog"
+        syncDiscoveryToUrl
       />
       <SiteFooter />
     </>

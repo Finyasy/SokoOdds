@@ -1,9 +1,11 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import { SiteHeader } from "@/components/layout/site-header";
 import type { Market } from "@/lib/mock-data";
 import {
+  buildDiscoveryHref,
   filterDiscoveryMarkets,
   formatDiscoveryFocusLabel,
   type DiscoveryCategory,
@@ -24,6 +26,8 @@ type MarketDiscoveryShellProps = {
   initialSearchQuery?: string;
   initialFocus?: DiscoveryFocus;
   showSignalStrip?: boolean;
+  signalStripTone?: "home" | "catalog";
+  syncDiscoveryToUrl?: boolean;
 };
 
 export function MarketDiscoveryShell({
@@ -37,8 +41,12 @@ export function MarketDiscoveryShell({
   initialCategory = "All",
   initialSearchQuery = "",
   initialFocus = "all",
-  showSignalStrip = false
+  showSignalStrip = false,
+  signalStripTone = "home",
+  syncDiscoveryToUrl = false
 }: MarketDiscoveryShellProps) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [activeCategory, setActiveCategory] = useState<DiscoveryCategory>(initialCategory);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [activeFocus, setActiveFocus] = useState<DiscoveryFocus>(initialFocus);
@@ -67,6 +75,18 @@ export function MarketDiscoveryShell({
     activeFocus !== deferredFocus ||
     searchQuery !== deferredSearchQuery;
 
+  function syncDiscoveryUrl(
+    category: DiscoveryCategory,
+    query: string,
+    focus: DiscoveryFocus
+  ) {
+    if (!syncDiscoveryToUrl) {
+      return;
+    }
+
+    router.replace(buildDiscoveryHref(pathname, category, query, focus), { scroll: false });
+  }
+
   return (
     <>
       <SiteHeader
@@ -74,6 +94,7 @@ export function MarketDiscoveryShell({
         onSearchChange={(value) => {
           startBoardTransition(() => {
             setSearchQuery(value);
+            syncDiscoveryUrl(activeCategory, value, activeFocus);
           });
         }}
         activeMarketCategory={activeCategory}
@@ -81,6 +102,7 @@ export function MarketDiscoveryShell({
         onSelectMarketCategory={(value) => {
           startBoardTransition(() => {
             setActiveCategory(value);
+            syncDiscoveryUrl(value, searchQuery, activeFocus);
           });
         }}
       />
@@ -91,10 +113,12 @@ export function MarketDiscoveryShell({
             markets={markets}
             activeCategory={deferredCategory}
             activeFocus={deferredFocus}
+            tone={signalStripTone}
             onSelectSignalBoard={(focus, category) => {
               startBoardTransition(() => {
                 setActiveFocus(focus);
                 setActiveCategory(category);
+                syncDiscoveryUrl(category, searchQuery, focus);
               });
             }}
           />
@@ -112,6 +136,7 @@ export function MarketDiscoveryShell({
           onFilterChange={(value) => {
             startBoardTransition(() => {
               setActiveCategory(value);
+              syncDiscoveryUrl(value, searchQuery, activeFocus);
             });
           }}
           onClearDiscovery={() => {
@@ -119,6 +144,7 @@ export function MarketDiscoveryShell({
               setActiveCategory("All");
               setSearchQuery("");
               setActiveFocus("all");
+              syncDiscoveryUrl("All", "", "all");
             });
           }}
           footerText={footerText}

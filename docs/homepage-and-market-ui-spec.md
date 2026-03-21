@@ -32,12 +32,15 @@ Already live in the checked-in app:
 - header uses a compact search-plus-category-rail pattern so users can scan bets immediately
 - homepage header search and top nav now drive the same in-place board state instead of acting like static chrome
 - header copy now reflects the active discovery state so focused boards feel connected to the top surface instead of looking like a detached grid
+- search placeholder and empty-state copy now adapt to the active board, so `Economy` and `Ending soon economy` feel like real contexts rather than generic filters
 - board title, count, and market grid now transition softly during discovery changes instead of snapping abruptly
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
 - the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
 - a thin market-signals strip now surfaces `Trending now` and `Ending soon` above the grid without turning the page back into a hero
 - signal-strip labels and micro-links now focus the homepage board in place instead of kicking users out of discovery
 - active signal-strip shortcuts now stay visible so focused boards such as `Trending politics` and `Ending soon economy` still feel anchored to the landing page
+- the `/markets` page now inherits the same signal-strip language in a flatter catalog treatment, so discovery stays consistent without making the catalog feel promotional
+- `/markets` discovery interactions now sync back into the URL, so category and focus views survive reloads and can be shared directly
 - category chips now filter the board in place instead of forcing a route change
 - a slim `Ending soon` rail adds urgency without reintroducing clutter
 - first market-detail visit shows a dismissible WhatsApp prompt
@@ -220,11 +223,14 @@ Must include:
 - a thin `Trending now / Ending soon` signal strip above the grid
 - signal strip labels and micro-links that focus the board in place without adding a second heavy nav
 - subtle active treatment on the currently selected signal board so users understand why the grid changed
+- a more subdued catalog variant of the same strip on `/markets`, using tighter spacing and flatter surfaces
+- URL updates on `/markets` when category, focus, or search changes so catalog boards feel bookmarkable and shareable
 - compact `All markets` heading
 - small discovery kicker, not a large hero paragraph
 - visible live-contract count
 - header microcopy that mirrors focused-board state such as `Viewing ending soon economy board`
 - header search that filters the visible board in place
+- search placeholder and no-results copy that mirror the current board scope instead of falling back to generic market language
 - top nav chips that switch the board category in place
 - dense category chips
 - in-place category filtering

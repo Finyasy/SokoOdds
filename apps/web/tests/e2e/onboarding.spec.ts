@@ -33,8 +33,10 @@ test("homepage opens directly on the discovery markets surface", async ({ page }
 test("homepage header search and nav filter the board in place", async ({ page }) => {
   await page.goto("/");
   const boardGrid = page.getByTestId("market-board-grid");
+  const searchInput = page.getByLabel("Market search input");
 
   await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Economy" }).click();
+  await expect(searchInput).toHaveAttribute("placeholder", "Search economy markets...");
   await expect(
     boardGrid.getByRole("link", {
       name: /CBK cut rate before Sept 30\?/i
@@ -46,8 +48,10 @@ test("homepage header search and nav filter the board in place", async ({ page }
     })
   ).toHaveCount(0);
 
-  await page.getByPlaceholder("Search markets...").fill("mobility");
-  await expect(page.getByTestId("market-board-empty")).toBeVisible();
+  await searchInput.fill("mobility");
+  await expect(page.getByTestId("market-board-empty")).toContainText(
+    "Nothing in economy board matches"
+  );
   await page.getByRole("button", { name: "Clear market search" }).click();
   await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Trending" }).click();
   await expect(
@@ -71,6 +75,10 @@ test("signal strip controls open focused discovery boards and keep active state 
   await expect(page.getByTestId("market-board-focus")).toContainText("Ending soon economy");
   await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
   await expect(page.getByText("Viewing ending soon economy board")).toBeVisible();
+  await expect(page.getByLabel("Market search input")).toHaveAttribute(
+    "placeholder",
+    "Search ending soon economy..."
+  );
   await expect(activeShortcut).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByLabel("Market signals").getByRole("button", { name: "Ending soon", exact: true })
@@ -85,6 +93,10 @@ test("signal strip controls open focused discovery boards and keep active state 
 test("markets page stays feed-first and shows the expanded launch catalogue", async ({ page }) => {
   await page.goto("/markets");
 
+  await expect(page.getByLabel("Market signals")).toBeVisible();
+  await expect(
+    page.getByLabel("Market signals").getByRole("button", { name: "Trending now", exact: true })
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {
@@ -96,6 +108,7 @@ test("markets page stays feed-first and shows the expanded launch catalogue", as
 test("market board filters in place by category", async ({ page }) => {
   await page.goto("/markets");
   const boardGrid = page.getByTestId("market-board-grid");
+  const searchInput = page.getByLabel("Market search input");
 
   await page.getByLabel("Category filters").getByRole("button", { name: "Economy" }).click();
 
@@ -109,6 +122,18 @@ test("market board filters in place by category", async ({ page }) => {
       name: /Gor Mahia above AFC Leopards\?/i
     })
   ).toHaveCount(0);
+  await expect(page).toHaveURL(/\/markets\?category=Economy$/);
+
+  await page.getByLabel("Market signals").getByRole("button", { name: "Ending soon economy" }).click();
+
+  await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(searchInput).toHaveAttribute("placeholder", "Search ending soon economy...");
+  await expect(page).toHaveURL(/\/markets\?category=Economy&focus=ending-soon$/);
+
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name: "Ending soon economy" })).toBeVisible();
+  await expect(searchInput).toHaveAttribute("placeholder", "Search ending soon economy...");
 });
 
 test("market detail opens with the first-time WhatsApp prompt", async ({ page }) => {
