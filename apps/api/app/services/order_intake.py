@@ -134,6 +134,7 @@ class OrderIntakeService:
                     direction=order_request.direction,
                     price=order_request.price,
                     quantity=order_request.quantity,
+                    filled_quantity=Decimal("0.00"),
                     reserved_amount=reserved_amount,
                     status="submitted",
                     idempotency_key=idempotency_key,

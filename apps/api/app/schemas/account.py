@@ -122,6 +122,35 @@ class PortfolioOrderItemResponse(BaseModel):
     createdAt: str
 
 
+class PortfolioPositionItemResponse(BaseModel):
+    marketId: str
+    marketSlug: str | None = None
+    marketLabel: str
+    marketQuestion: str | None = None
+    side: str
+    shares: str
+    averageEntryPriceKes: str
+    markPriceKes: str
+    costBasisKes: str
+    marketValueKes: str
+    unrealizedPnlKes: str
+    realizedPnlKes: str
+    updatedAt: str
+
+
+class PortfolioFillItemResponse(BaseModel):
+    tradeId: str
+    marketId: str
+    marketSlug: str | None = None
+    marketLabel: str
+    side: str
+    direction: str
+    priceKes: str
+    shares: str
+    notionalKes: str
+    executedAt: str
+
+
 class PortfolioExposureResponse(BaseModel):
     openOrderCount: int
     reservedOrderValueKes: str
@@ -154,6 +183,8 @@ class PortfolioOrdersResponse(BaseModel):
     account: AccountSnapshotResponse
     exposure: PortfolioExposureResponse
     items: list[PortfolioOrderItemResponse]
+    positions: list[PortfolioPositionItemResponse]
+    fills: list[PortfolioFillItemResponse]
     markets: list[PortfolioMarketExposureItemResponse]
     recentPrints: list[PortfolioRecentPrintResponse]
 

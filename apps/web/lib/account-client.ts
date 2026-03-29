@@ -96,6 +96,35 @@ export type PortfolioOrderItem = {
   createdAt: string;
 };
 
+export type PortfolioPositionItem = {
+  marketId: string;
+  marketSlug: string | null;
+  marketLabel: string;
+  marketQuestion: string | null;
+  side: string;
+  shares: string;
+  averageEntryPriceKes: string;
+  markPriceKes: string;
+  costBasisKes: string;
+  marketValueKes: string;
+  unrealizedPnlKes: string;
+  realizedPnlKes: string;
+  updatedAt: string;
+};
+
+export type PortfolioFillItem = {
+  tradeId: string;
+  marketId: string;
+  marketSlug: string | null;
+  marketLabel: string;
+  side: string;
+  direction: string;
+  priceKes: string;
+  shares: string;
+  notionalKes: string;
+  executedAt: string;
+};
+
 export type PortfolioExposure = {
   openOrderCount: number;
   reservedOrderValueKes: string;
@@ -128,6 +157,8 @@ export type PortfolioOrdersResponse = {
   account: AccountSnapshot;
   exposure: PortfolioExposure;
   items: PortfolioOrderItem[];
+  positions: PortfolioPositionItem[];
+  fills: PortfolioFillItem[];
   markets: PortfolioMarketExposureItem[];
   recentPrints: PortfolioRecentPrint[];
 };

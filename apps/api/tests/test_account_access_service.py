@@ -13,6 +13,8 @@ from app.models import (
     LedgerEntry,
     Market,
     Order,
+    Position,
+    Trade,
     User,
     UserSession,
     Wallet,
@@ -271,9 +273,35 @@ async def test_portfolio_orders_returns_recent_order_exposure(async_session: Asy
             direction="BUY",
             price=Decimal("0.6200"),
             quantity=Decimal("8.00"),
+            filled_quantity=Decimal("2.00"),
             reserved_amount=Decimal("4.96"),
-            status="submitted",
+            status="partially_filled",
             idempotency_key="idem-1",
+        )
+    )
+    async_session.add(
+        Position(
+            id="position-1",
+            user_id=onboarded.account.user_id,
+            market_id="market-1",
+            side="YES",
+            shares=Decimal("12.00"),
+            average_entry_price=Decimal("0.5800"),
+            realized_pnl=Decimal("1.20"),
+        )
+    )
+    async_session.add(
+        Trade(
+            id="trade-1",
+            market_id="market-1",
+            buyer_id=onboarded.account.user_id,
+            seller_id="other-user",
+            side="YES",
+            price=Decimal("0.6100"),
+            quantity=Decimal("5.00"),
+            notional_amount=Decimal("3.05"),
+            engine_sequence=1,
+            executed_at=datetime.now(UTC) - timedelta(minutes=5),
         )
     )
     await async_session.commit()
@@ -283,10 +311,77 @@ async def test_portfolio_orders_returns_recent_order_exposure(async_session: Asy
     assert result.exposure.openOrderCount == 1
     assert result.exposure.reservedOrderValueKes == "4.96"
     assert result.items[0].marketLabel == "Nairobi mobility bill"
+    assert result.items[0].quantity == "6.00"
     assert result.items[0].reservedAmountKes == "4.96"
     assert result.markets[0].marketLabel == "Nairobi mobility bill"
     assert result.markets[0].averageEntryPriceKes == "0.62"
+    assert result.markets[0].totalQuantity == "6.00"
+    assert result.positions[0].shares == "12.00"
+    assert result.positions[0].marketValueKes == "7.44"
+    assert result.fills[0].direction == "BUY"
+    assert result.fills[0].notionalKes == "3.05"
     assert result.recentPrints == []
+
+
+@pytest.mark.asyncio
+async def test_portfolio_exposure_counts_all_active_orders_not_only_recent_window(
+    async_session: AsyncSession,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    async_session.add(
+        Market(
+            id="market-1",
+            slug="nairobi-governor-bill-sign-before-june",
+            sort_order=1,
+            category="Politics",
+            status="Open",
+            question="Will Nairobi county sign the urban mobility bill before June 30, 2026?",
+            short_label="Nairobi mobility bill",
+            summary="Kenya public affairs market.",
+            region="Kenya Public Affairs",
+            yes_price=Decimal("0.6200"),
+            no_price=Decimal("0.3800"),
+            volume_kes=Decimal("486000.00"),
+            liquidity_kes=Decimal("190000.00"),
+            closes_at=datetime.now(UTC) + timedelta(days=30),
+            resolution_source="Official notice",
+            rule_highlights=["Official notice controls."],
+            trust_notes=["Public source resolution."],
+            order_book={"yesBids": [], "noBids": []},
+            trades=[],
+        )
+    )
+    base_time = datetime.now(UTC)
+    for index in range(13):
+        async_session.add(
+            Order(
+                id=f"order-{index}",
+                user_id=onboarded.account.user_id,
+                market_id="market-1",
+                side="YES",
+                direction="BUY",
+                price=Decimal("0.6000"),
+                quantity=Decimal("1.00"),
+                filled_quantity=Decimal("0.00"),
+                reserved_amount=Decimal("0.60"),
+                status="submitted",
+                idempotency_key=f"idem-{index}",
+                created_at=base_time - timedelta(minutes=index),
+            )
+        )
+    await async_session.commit()
+
+    result = await service.get_portfolio_orders(user_id=onboarded.account.user_id)
+
+    assert len(result.items) == 12
+    assert result.exposure.openOrderCount == 13
+    assert result.exposure.reservedOrderValueKes == "7.80"
 
 
 @pytest.mark.asyncio
@@ -409,12 +504,16 @@ async def test_admin_can_reject_review_required_withdrawal(async_session: AsyncS
 
     result = await service.review_withdrawal(
         admin_user_id=admin.account.user_id,
-        withdrawal_id=(await service.list_admin_wallet_activity(
-            admin_user_id=admin.account.user_id,
-            status_filter="review_required",
-            kind_filter="withdrawal",
-            limit=10,
-        )).items[0].id,
+        withdrawal_id=(
+            await service.list_admin_wallet_activity(
+                admin_user_id=admin.account.user_id,
+                status_filter="review_required",
+                kind_filter="withdrawal",
+                limit=10,
+            )
+        )
+        .items[0]
+        .id,
         decision="rejected",
         note=None,
     )

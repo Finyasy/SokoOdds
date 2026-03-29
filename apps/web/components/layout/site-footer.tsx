@@ -27,6 +27,7 @@ export function SiteFooter() {
         <div>
           <h3>Wallet</h3>
           <Link href="/portfolio">Portfolio</Link>
+          <Link href="/cash">Cash & deposit</Link>
           <Link href="/markets/nairobi-governor-bill-sign-before-june">Open a sample market</Link>
           <Link href="/help">Help Center</Link>
           <Link href="/market-integrity">Market Integrity</Link>

@@ -23,6 +23,8 @@ from app.models import (
     LedgerEntry,
     Market,
     Order,
+    Position,
+    Trade,
     User,
     UserSession,
     Wallet,
@@ -38,9 +40,11 @@ from app.schemas.account import (
     KycProfileResponse,
     KycSubmissionResponse,
     PortfolioExposureResponse,
+    PortfolioFillItemResponse,
     PortfolioMarketExposureItemResponse,
     PortfolioOrderItemResponse,
     PortfolioOrdersResponse,
+    PortfolioPositionItemResponse,
     PortfolioRecentPrintResponse,
     WalletDepositStatusResponse,
     WalletResponse,
@@ -50,11 +54,19 @@ from app.schemas.account import (
 )
 from app.services.order_intake import quantize_money
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_session)]
 AuthorizationHeader = Annotated[str | None, Header(alias="Authorization")]
+ACTIVE_ORDER_STATUSES = {
+    "submitted",
+    "accepted",
+    "queued_for_matching",
+    "open",
+    "partial",
+    "partially_filled",
+}
 
 
 class AuthenticationError(Exception):
@@ -271,6 +283,68 @@ class PortfolioOrderItem:
             reservedAmountKes=f"{self.reserved_amount:.2f}",
             status=self.status,
             createdAt=self.created_at.isoformat(),
+        )
+
+
+@dataclass(frozen=True)
+class PortfolioPositionItem:
+    market_id: str
+    market_slug: str | None
+    market_label: str
+    market_question: str | None
+    side: str
+    shares: Decimal
+    average_entry_price: Decimal
+    mark_price: Decimal
+    cost_basis: Decimal
+    market_value: Decimal
+    unrealized_pnl: Decimal
+    realized_pnl: Decimal
+    updated_at: datetime
+
+    def to_response_model(self) -> PortfolioPositionItemResponse:
+        return PortfolioPositionItemResponse(
+            marketId=self.market_id,
+            marketSlug=self.market_slug,
+            marketLabel=self.market_label,
+            marketQuestion=self.market_question,
+            side=self.side,
+            shares=f"{self.shares:.2f}",
+            averageEntryPriceKes=f"{self.average_entry_price:.2f}",
+            markPriceKes=f"{self.mark_price:.2f}",
+            costBasisKes=f"{self.cost_basis:.2f}",
+            marketValueKes=f"{self.market_value:.2f}",
+            unrealizedPnlKes=f"{self.unrealized_pnl:.2f}",
+            realizedPnlKes=f"{self.realized_pnl:.2f}",
+            updatedAt=self.updated_at.isoformat(),
+        )
+
+
+@dataclass(frozen=True)
+class PortfolioFillItem:
+    trade_id: str
+    market_id: str
+    market_slug: str | None
+    market_label: str
+    side: str
+    direction: str
+    price: Decimal
+    shares: Decimal
+    notional: Decimal
+    executed_at: datetime
+
+    def to_response_model(self) -> PortfolioFillItemResponse:
+        return PortfolioFillItemResponse(
+            tradeId=self.trade_id,
+            marketId=self.market_id,
+            marketSlug=self.market_slug,
+            marketLabel=self.market_label,
+            side=self.side,
+            direction=self.direction,
+            priceKes=f"{self.price:.2f}",
+            shares=f"{self.shares:.2f}",
+            notionalKes=f"{self.notional:.2f}",
+            executedAt=self.executed_at.isoformat(),
         )
 
 
@@ -890,15 +964,43 @@ class AccountAccessService:
         if account is None:
             raise AuthenticationError("Authenticated user was not found.")
 
-        order_result = await self.session.execute(
+        recent_order_result = await self.session.execute(
+            select(Order).where(Order.user_id == user_id).order_by(desc(Order.created_at)).limit(12)
+        )
+        recent_orders = recent_order_result.scalars().all()
+
+        active_order_result = await self.session.execute(
             select(Order)
-            .where(Order.user_id == user_id)
+            .where(
+                Order.user_id == user_id,
+                Order.status.in_(tuple(ACTIVE_ORDER_STATUSES)),
+            )
             .order_by(desc(Order.created_at))
+        )
+        active_orders = active_order_result.scalars().all()
+
+        position_result = await self.session.execute(
+            select(Position)
+            .where(Position.user_id == user_id, Position.shares > Decimal("0.00"))
+            .order_by(desc(Position.updated_at))
             .limit(12)
         )
-        orders = order_result.scalars().all()
+        positions = position_result.scalars().all()
 
-        market_ids = list({order.market_id for order in orders})
+        fill_result = await self.session.execute(
+            select(Trade)
+            .where(or_(Trade.buyer_id == user_id, Trade.seller_id == user_id))
+            .order_by(desc(Trade.executed_at))
+            .limit(12)
+        )
+        fills = fill_result.scalars().all()
+
+        market_ids = {
+            *(order.market_id for order in recent_orders),
+            *(order.market_id for order in active_orders),
+            *(position.market_id for position in positions),
+            *(trade.market_id for trade in fills),
+        }
         markets_by_id: dict[str, Market] = {}
         if market_ids:
             market_result = await self.session.execute(
@@ -906,18 +1008,16 @@ class AccountAccessService:
             )
             markets_by_id = {market.id: market for market in market_result.scalars().all()}
 
-        open_order_count = 0
         reserved_total = Decimal("0.00")
-        items: list[PortfolioOrderItemResponse] = []
         grouped_orders: dict[str, list[Order]] = {}
+        for order in active_orders:
+            reserved_total = quantize_money(reserved_total + order.reserved_amount)
+            grouped_orders.setdefault(order.market_id, []).append(order)
 
-        for order in orders:
+        items: list[PortfolioOrderItemResponse] = []
+        for order in recent_orders:
             market = markets_by_id.get(order.market_id)
-            if order.status in {"submitted", "open", "partial"}:
-                open_order_count += 1
-                reserved_total = quantize_money(reserved_total + order.reserved_amount)
-                grouped_orders.setdefault(order.market_id, []).append(order)
-
+            remaining_quantity = quantize_money(order.quantity - order.filled_quantity)
             items.append(
                 PortfolioOrderItem(
                     id=order.id,
@@ -930,10 +1030,61 @@ class AccountAccessService:
                     side=order.side,
                     direction=order.direction,
                     price=quantize_money(order.price),
-                    quantity=quantize_money(order.quantity),
+                    quantity=remaining_quantity,
                     reserved_amount=quantize_money(order.reserved_amount),
                     status=order.status,
                     created_at=order.created_at,
+                ).to_response_model()
+            )
+
+        position_items: list[PortfolioPositionItemResponse] = []
+        for position in positions:
+            market = markets_by_id.get(position.market_id)
+            mark_price = Decimal("0.00")
+            if market is not None:
+                mark_price = quantize_money(
+                    market.yes_price if position.side == "YES" else market.no_price
+                )
+            cost_basis = quantize_money(position.average_entry_price * position.shares)
+            market_value = quantize_money(mark_price * position.shares)
+            position_items.append(
+                PortfolioPositionItem(
+                    market_id=position.market_id,
+                    market_slug=market.slug if market is not None else None,
+                    market_label=(
+                        market.short_label if market is not None else f"Market {position.market_id}"
+                    ),
+                    market_question=market.question if market is not None else None,
+                    side=position.side,
+                    shares=quantize_money(position.shares),
+                    average_entry_price=quantize_money(position.average_entry_price),
+                    mark_price=mark_price,
+                    cost_basis=cost_basis,
+                    market_value=market_value,
+                    unrealized_pnl=quantize_money(market_value - cost_basis),
+                    realized_pnl=quantize_money(position.realized_pnl),
+                    updated_at=position.updated_at,
+                ).to_response_model()
+            )
+
+        fill_items: list[PortfolioFillItemResponse] = []
+        for trade in fills:
+            market = markets_by_id.get(trade.market_id)
+            direction = "BUY" if trade.buyer_id == user_id else "SELL"
+            fill_items.append(
+                PortfolioFillItem(
+                    trade_id=trade.id,
+                    market_id=trade.market_id,
+                    market_slug=market.slug if market is not None else None,
+                    market_label=(
+                        market.short_label if market is not None else f"Market {trade.market_id}"
+                    ),
+                    side=trade.side,
+                    direction=direction,
+                    price=quantize_money(trade.price),
+                    shares=quantize_money(trade.quantity),
+                    notional=quantize_money(trade.notional_amount),
+                    executed_at=trade.executed_at,
                 ).to_response_model()
             )
 
@@ -946,8 +1097,9 @@ class AccountAccessService:
 
             for order in market_orders:
                 reserved_amount = quantize_money(reserved_amount + order.reserved_amount)
-                total_quantity = quantize_money(total_quantity + order.quantity)
-                weighted_total = quantize_money(weighted_total + (order.price * order.quantity))
+                remaining_quantity = quantize_money(order.quantity - order.filled_quantity)
+                total_quantity = quantize_money(total_quantity + remaining_quantity)
+                weighted_total = quantize_money(weighted_total + (order.price * remaining_quantity))
 
             average_entry_price = (
                 quantize_money(weighted_total / total_quantity)
@@ -968,20 +1120,16 @@ class AccountAccessService:
                     total_quantity=total_quantity,
                     average_entry_price=average_entry_price,
                     latest_yes_price=(
-                        quantize_money(market.yes_price)
-                        if market is not None
-                        else Decimal("0.00")
+                        quantize_money(market.yes_price) if market is not None else Decimal("0.00")
                     ),
                     latest_no_price=(
-                        quantize_money(market.no_price)
-                        if market is not None
-                        else Decimal("0.00")
+                        quantize_money(market.no_price) if market is not None else Decimal("0.00")
                     ),
                 ).to_response_model()
             )
 
         recent_prints: list[PortfolioRecentPrintResponse] = []
-        for market_id in market_ids:
+        for market_id in grouped_orders:
             market = markets_by_id.get(market_id)
             if market is None:
                 continue
@@ -1002,10 +1150,12 @@ class AccountAccessService:
         return PortfolioOrdersResponse(
             account=account.to_response_model(),
             exposure=PortfolioExposureResponse(
-                openOrderCount=open_order_count,
+                openOrderCount=len(active_orders),
                 reservedOrderValueKes=f"{reserved_total:.2f}",
             ),
             items=items,
+            positions=position_items,
+            fills=fill_items,
             markets=market_exposure_items,
             recentPrints=recent_prints[:6],
         )
@@ -1287,8 +1437,7 @@ class AccountAccessService:
                             note.strip()
                             if note and note.strip()
                             else (
-                                "Manual withdrawal rejection released funds for "
-                                f"{withdrawal.phone}"
+                                f"Manual withdrawal rejection released funds for {withdrawal.phone}"
                             )
                         ),
                     )

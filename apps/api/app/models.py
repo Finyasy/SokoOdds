@@ -119,11 +119,54 @@ class Order(Base):
     direction: Mapped[str] = mapped_column(String(8), nullable=False)
     price: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    filled_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     reserved_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="submitted")
     idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class Trade(Base):
+    __tablename__ = "trades"
+    __table_args__ = (
+        UniqueConstraint("market_id", "engine_sequence", name="uq_trades_market_engine_sequence"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    market_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    buyer_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    seller_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    notional_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    engine_sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Position(Base):
+    __tablename__ = "positions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "market_id", "side", name="uq_positions_user_market_side"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    market_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    shares: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    average_entry_price: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 

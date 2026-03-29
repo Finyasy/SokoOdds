@@ -1,6 +1,7 @@
 import { SiteFooter } from "@/components/layout/site-footer";
 import { MarketDiscoveryShell } from "@/components/market/market-discovery-shell";
 import { getMarkets } from "@/lib/market-api";
+import { homeHeroMarkets } from "@/lib/mock-data";
 import {
   parseDiscoveryCategory,
   parseDiscoveryFocus,
@@ -39,7 +40,7 @@ export default async function MarketsPage({ searchParams }: MarketsPageProps) {
         signalStripTone="catalog"
         syncDiscoveryToUrl
         showTrendingHero
-        heroMarkets={markets}
+        heroMarkets={homeHeroMarkets}
         showMoreHref="/markets?category=All"
         showMoreLabel="Show more markets"
         showUrgentRail={false}

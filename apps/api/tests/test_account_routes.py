@@ -250,8 +250,7 @@ class FakeAccountService:
                         "marketSlug": "nairobi-governor-bill-sign-before-june",
                         "marketLabel": "Nairobi mobility bill",
                         "marketQuestion": (
-                            "Will Nairobi county sign the urban mobility bill before "
-                            "June 30, 2026?"
+                            "Will Nairobi county sign the urban mobility bill before June 30, 2026?"
                         ),
                         "side": "YES",
                         "direction": "BUY",
@@ -262,14 +261,46 @@ class FakeAccountService:
                         "createdAt": datetime.now(UTC).isoformat(),
                     }
                 ],
+                "positions": [
+                    {
+                        "marketId": "demo-market-kenya-election",
+                        "marketSlug": "nairobi-governor-bill-sign-before-june",
+                        "marketLabel": "Nairobi mobility bill",
+                        "marketQuestion": (
+                            "Will Nairobi county sign the urban mobility bill before June 30, 2026?"
+                        ),
+                        "side": "YES",
+                        "shares": "12.00",
+                        "averageEntryPriceKes": "0.58",
+                        "markPriceKes": "0.62",
+                        "costBasisKes": "6.96",
+                        "marketValueKes": "7.44",
+                        "unrealizedPnlKes": "0.48",
+                        "realizedPnlKes": "1.20",
+                        "updatedAt": datetime.now(UTC).isoformat(),
+                    }
+                ],
+                "fills": [
+                    {
+                        "tradeId": "trade-1",
+                        "marketId": "demo-market-kenya-election",
+                        "marketSlug": "nairobi-governor-bill-sign-before-june",
+                        "marketLabel": "Nairobi mobility bill",
+                        "side": "YES",
+                        "direction": "BUY",
+                        "priceKes": "0.61",
+                        "shares": "5.00",
+                        "notionalKes": "3.05",
+                        "executedAt": datetime.now(UTC).isoformat(),
+                    }
+                ],
                 "markets": [
                     {
                         "marketId": "demo-market-kenya-election",
                         "marketSlug": "nairobi-governor-bill-sign-before-june",
                         "marketLabel": "Nairobi mobility bill",
                         "marketQuestion": (
-                            "Will Nairobi county sign the urban mobility bill before "
-                            "June 30, 2026?"
+                            "Will Nairobi county sign the urban mobility bill before June 30, 2026?"
                         ),
                         "activeOrderCount": 1,
                         "reservedAmountKes": "4.96",

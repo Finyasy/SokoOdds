@@ -231,7 +231,7 @@ These contracts describe the lightweight account and wallet-readiness flow that 
   - `GET /api/account/transactions`
   - `GET /api/account/kyc`
   - `GET /api/account/portfolio/orders`
-- the page currently focuses on wallet balance, reserved funds, KYC status, recent money movement, and open-order exposure rather than full positions or P&L
+- the page now includes wallet balance, reserved funds, KYC status, recent money movement, open-order exposure, durable fills, and market-level positions
 
 ### Admin Withdrawal Review Rules
 

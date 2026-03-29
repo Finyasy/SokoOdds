@@ -150,8 +150,8 @@ export function PortfolioExperience() {
           <span className="section-kicker">Portfolio</span>
           <h1>{state.name ? `${state.name}'s wallet and activity` : "Wallet and activity"}</h1>
           <p>
-            Review cash, reserved funds, KYC readiness, and recent M-Pesa movement without leaving
-            the product.
+            Review cash, open positions, fills, KYC readiness, and recent M-Pesa movement without
+            leaving the product.
           </p>
         </div>
         <div className="portfolio-actions">
@@ -286,6 +286,45 @@ export function PortfolioExperience() {
       <div className="portfolio-grid">
         <section className="portfolio-card">
           <div className="portfolio-card__head">
+            <span className="market-chip">Positions</span>
+            <strong data-testid="portfolio-position-count">
+              {snapshot.orders?.positions.length ?? 0} markets
+            </strong>
+          </div>
+
+          {snapshot.orders?.positions.length ? (
+            <div className="portfolio-exposure-list" data-testid="portfolio-positions">
+              {snapshot.orders.positions.map((position) => (
+                <article
+                  key={`${position.marketId}-${position.side}`}
+                  className="portfolio-exposure-item"
+                >
+                  <div>
+                    <strong>{position.marketLabel}</strong>
+                    <span>
+                      {position.side} · {position.shares} shares · avg Ksh{" "}
+                      {position.averageEntryPriceKes}
+                    </span>
+                  </div>
+                  <div className="portfolio-order-item__amount">
+                    <strong>Ksh {position.marketValueKes}</strong>
+                    <span>
+                      P&amp;L {position.unrealizedPnlKes.startsWith("-") ? "" : "+"}
+                      {position.unrealizedPnlKes}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="portfolio-state">
+              Filled shares will turn into market positions here once execution records land.
+            </div>
+          )}
+        </section>
+
+        <section className="portfolio-card">
+          <div className="portfolio-card__head">
             <span className="market-chip">Market exposure</span>
             <strong data-testid="portfolio-market-exposure-count">
               {snapshot.orders?.markets.length ?? 0} markets
@@ -315,6 +354,42 @@ export function PortfolioExperience() {
           ) : (
             <div className="portfolio-state">
               Active market exposure will appear here once you place an order from a market ticket.
+            </div>
+          )}
+        </section>
+      </div>
+
+      <div className="portfolio-grid">
+        <section className="portfolio-card">
+          <div className="portfolio-card__head">
+            <span className="market-chip">Recent fills</span>
+            <strong data-testid="portfolio-fill-count">
+              {snapshot.orders?.fills.length ?? 0} fills
+            </strong>
+          </div>
+
+          {snapshot.orders?.fills.length ? (
+            <div className="portfolio-exposure-list" data-testid="portfolio-fills">
+              {snapshot.orders.fills.map((fill) => (
+                <article key={fill.tradeId} className="portfolio-exposure-item">
+                  <div>
+                    <strong>{fill.marketLabel}</strong>
+                    <span>
+                      {fill.direction} {fill.side} · {fill.shares} shares
+                    </span>
+                  </div>
+                  <div className="portfolio-order-item__amount">
+                    <strong>Ksh {fill.notionalKes}</strong>
+                    <span>
+                      Ksh {fill.priceKes} · {formatDateLabel(fill.executedAt)}
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="portfolio-state">
+              Your matched fills will appear here once the engine starts writing durable trades.
             </div>
           )}
         </section>

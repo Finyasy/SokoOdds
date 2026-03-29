@@ -66,7 +66,7 @@ export function HeaderUtilityMenu() {
     { label: "Leaderboard", href: "/leaderboard" },
     { label: "Dark mode", meta: "Toggle" },
     { label: "Portfolio", href: "/portfolio" },
-    { label: "Cash balance", href: "/portfolio" },
+    { label: "Cash balance", href: "/cash" },
     { label: "Deposit via M-Pesa" },
     { label: "Deposit via Paybill" },
     { label: "Documentation", href: "/docs" },
