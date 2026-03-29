@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from app.models import Base, Deposit, KycProfile, LedgerEntry, User, UserSession, Wallet, Withdrawal
+from app.models import (
+    Base,
+    Deposit,
+    KycProfile,
+    LedgerEntry,
+    Market,
+    Order,
+    User,
+    UserSession,
+    Wallet,
+    Withdrawal,
+)
 from app.services.account_access import AccountAccessService
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -220,6 +231,65 @@ async def test_wallet_transactions_feed_includes_verification_deposit_and_withdr
 
 
 @pytest.mark.asyncio
+async def test_portfolio_orders_returns_recent_order_exposure(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    async_session.add(
+        Market(
+            id="market-1",
+            slug="nairobi-governor-bill-sign-before-june",
+            sort_order=1,
+            category="Politics",
+            status="Open",
+            question="Will Nairobi county sign the urban mobility bill before June 30, 2026?",
+            short_label="Nairobi mobility bill",
+            summary="Kenya public affairs market.",
+            region="Kenya Public Affairs",
+            yes_price=Decimal("0.6200"),
+            no_price=Decimal("0.3800"),
+            volume_kes=Decimal("486000.00"),
+            liquidity_kes=Decimal("190000.00"),
+            closes_at=datetime.now(UTC) + timedelta(days=30),
+            resolution_source="Official notice",
+            rule_highlights=["Official notice controls."],
+            trust_notes=["Public source resolution."],
+            order_book={"yesBids": [], "noBids": []},
+            trades=[],
+        )
+    )
+    async_session.add(
+        Order(
+            id="order-1",
+            user_id=onboarded.account.user_id,
+            market_id="market-1",
+            side="YES",
+            direction="BUY",
+            price=Decimal("0.6200"),
+            quantity=Decimal("8.00"),
+            reserved_amount=Decimal("4.96"),
+            status="submitted",
+            idempotency_key="idem-1",
+        )
+    )
+    await async_session.commit()
+
+    result = await service.get_portfolio_orders(user_id=onboarded.account.user_id)
+
+    assert result.exposure.openOrderCount == 1
+    assert result.exposure.reservedOrderValueKes == "4.96"
+    assert result.items[0].marketLabel == "Nairobi mobility bill"
+    assert result.items[0].reservedAmountKes == "4.96"
+    assert result.markets[0].marketLabel == "Nairobi mobility bill"
+    assert result.markets[0].averageEntryPriceKes == "0.62"
+    assert result.recentPrints == []
+
+
+@pytest.mark.asyncio
 async def test_kyc_submission_marks_user_pending(async_session: AsyncSession) -> None:
     service = AccountAccessService(
         async_session,
@@ -315,3 +385,93 @@ async def test_admin_wallet_support_queue_includes_deposits_and_withdrawals(
     assert result.items[0].phone == "0796000000"
     assert result.items[1].kind == "deposit"
     assert result.items[1].firstName == "Amina"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_reject_review_required_withdrawal(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    admin = await service.onboard_account(first_name="Admin", phone="0712 345 678")
+    customer = await service.onboard_account(first_name="Amina", phone="0796 000 000")
+    await service.verify_mpesa(user_id=customer.account.user_id, phone="0796 000 000")
+    await service.initiate_wallet_deposit(
+        user_id=customer.account.user_id,
+        amount=Decimal("3000.00"),
+    )
+    await service.initiate_wallet_withdrawal(
+        user_id=customer.account.user_id,
+        amount=Decimal("2600.00"),
+    )
+
+    result = await service.review_withdrawal(
+        admin_user_id=admin.account.user_id,
+        withdrawal_id=(await service.list_admin_wallet_activity(
+            admin_user_id=admin.account.user_id,
+            status_filter="review_required",
+            kind_filter="withdrawal",
+            limit=10,
+        )).items[0].id,
+        decision="rejected",
+        note=None,
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == customer.account.user_id)
+    )
+
+    assert result.status == "failed"
+    assert result.reviewedByName == "Admin"
+    assert result.reviewDecision == "rejected"
+    assert result.reviewedAt is not None
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("3005.00")
+    assert wallet.reserved_balance == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_admin_can_release_review_required_withdrawal(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    admin = await service.onboard_account(first_name="Admin", phone="0712 345 678")
+    customer = await service.onboard_account(first_name="Amina", phone="0796 000 000")
+    await service.verify_mpesa(user_id=customer.account.user_id, phone="0796 000 000")
+    await service.initiate_wallet_deposit(
+        user_id=customer.account.user_id,
+        amount=Decimal("3000.00"),
+    )
+    await service.initiate_wallet_withdrawal(
+        user_id=customer.account.user_id,
+        amount=Decimal("2600.00"),
+    )
+
+    queued = await service.list_admin_wallet_activity(
+        admin_user_id=admin.account.user_id,
+        status_filter="review_required",
+        kind_filter="withdrawal",
+        limit=10,
+    )
+    result = await service.review_withdrawal(
+        admin_user_id=admin.account.user_id,
+        withdrawal_id=queued.items[0].id,
+        decision="approved",
+        note=None,
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == customer.account.user_id)
+    )
+
+    assert result.kind == "withdrawal"
+    assert result.status == "completed"
+    assert result.reviewedByName == "Admin"
+    assert result.reviewDecision == "approved"
+    assert result.reviewedAt is not None
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("405.00")
+    assert wallet.reserved_balance == Decimal("0.00")

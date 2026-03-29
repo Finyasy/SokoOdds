@@ -17,7 +17,17 @@ from app.core.auth import (
 from app.core.config import settings
 from app.core.database import get_async_session
 from app.integrations.daraja import B2CPayoutResult, DarajaConfigurationError, daraja_client
-from app.models import Deposit, KycProfile, LedgerEntry, User, UserSession, Wallet, Withdrawal
+from app.models import (
+    Deposit,
+    KycProfile,
+    LedgerEntry,
+    Market,
+    Order,
+    User,
+    UserSession,
+    Wallet,
+    Withdrawal,
+)
 from app.schemas.account import (
     AccountSnapshotResponse,
     AccountUserResponse,
@@ -27,6 +37,11 @@ from app.schemas.account import (
     AdminWalletSupportResponse,
     KycProfileResponse,
     KycSubmissionResponse,
+    PortfolioExposureResponse,
+    PortfolioMarketExposureItemResponse,
+    PortfolioOrderItemResponse,
+    PortfolioOrdersResponse,
+    PortfolioRecentPrintResponse,
     WalletDepositStatusResponse,
     WalletResponse,
     WalletTransactionItemResponse,
@@ -178,6 +193,9 @@ class AdminWalletSupportItem:
     amount: Decimal
     created_at: datetime
     updated_at: datetime
+    reviewed_at: datetime | None = None
+    reviewed_by_name: str | None = None
+    review_decision: str | None = None
 
     def to_response_model(self) -> AdminWalletSupportItemResponse:
         return AdminWalletSupportItemResponse(
@@ -192,6 +210,9 @@ class AdminWalletSupportItem:
             amountKes=f"{self.amount:.2f}",
             createdAt=self.created_at.isoformat(),
             updatedAt=self.updated_at.isoformat(),
+            reviewedAt=self.reviewed_at.isoformat() if self.reviewed_at is not None else None,
+            reviewedByName=self.reviewed_by_name,
+            reviewDecision=self.review_decision,
         )
 
 
@@ -218,6 +239,88 @@ class KycProfileSnapshot:
             submittedAt=self.submitted_at.isoformat(),
             reviewedAt=self.reviewed_at.isoformat() if self.reviewed_at is not None else None,
             rejectionReason=self.rejection_reason,
+        )
+
+
+@dataclass(frozen=True)
+class PortfolioOrderItem:
+    id: str
+    market_id: str
+    market_slug: str | None
+    market_label: str
+    market_question: str | None
+    side: str
+    direction: str
+    price: Decimal
+    quantity: Decimal
+    reserved_amount: Decimal
+    status: str
+    created_at: datetime
+
+    def to_response_model(self) -> PortfolioOrderItemResponse:
+        return PortfolioOrderItemResponse(
+            id=self.id,
+            marketId=self.market_id,
+            marketSlug=self.market_slug,
+            marketLabel=self.market_label,
+            marketQuestion=self.market_question,
+            side=self.side,
+            direction=self.direction,
+            price=f"{self.price:.2f}",
+            quantity=f"{self.quantity:.2f}",
+            reservedAmountKes=f"{self.reserved_amount:.2f}",
+            status=self.status,
+            createdAt=self.created_at.isoformat(),
+        )
+
+
+@dataclass(frozen=True)
+class PortfolioMarketExposureItem:
+    market_id: str
+    market_slug: str | None
+    market_label: str
+    market_question: str | None
+    active_order_count: int
+    reserved_amount: Decimal
+    total_quantity: Decimal
+    average_entry_price: Decimal
+    latest_yes_price: Decimal
+    latest_no_price: Decimal
+
+    def to_response_model(self) -> PortfolioMarketExposureItemResponse:
+        return PortfolioMarketExposureItemResponse(
+            marketId=self.market_id,
+            marketSlug=self.market_slug,
+            marketLabel=self.market_label,
+            marketQuestion=self.market_question,
+            activeOrderCount=self.active_order_count,
+            reservedAmountKes=f"{self.reserved_amount:.2f}",
+            totalQuantity=f"{self.total_quantity:.2f}",
+            averageEntryPriceKes=f"{self.average_entry_price:.2f}",
+            latestYesPriceKes=f"{self.latest_yes_price:.2f}",
+            latestNoPriceKes=f"{self.latest_no_price:.2f}",
+        )
+
+
+@dataclass(frozen=True)
+class PortfolioRecentPrint:
+    market_id: str
+    market_slug: str | None
+    market_label: str
+    side: str
+    price: Decimal
+    shares: Decimal
+    time_label: str
+
+    def to_response_model(self) -> PortfolioRecentPrintResponse:
+        return PortfolioRecentPrintResponse(
+            marketId=self.market_id,
+            marketSlug=self.market_slug,
+            marketLabel=self.market_label,
+            side=self.side,
+            priceKes=f"{self.price:.2f}",
+            shares=f"{self.shares:.0f}",
+            timeLabel=self.time_label,
         )
 
 
@@ -782,6 +885,131 @@ class AccountAccessService:
             items=[item.to_response_model() for item in items[:10]],
         )
 
+    async def get_portfolio_orders(self, *, user_id: str) -> PortfolioOrdersResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        order_result = await self.session.execute(
+            select(Order)
+            .where(Order.user_id == user_id)
+            .order_by(desc(Order.created_at))
+            .limit(12)
+        )
+        orders = order_result.scalars().all()
+
+        market_ids = list({order.market_id for order in orders})
+        markets_by_id: dict[str, Market] = {}
+        if market_ids:
+            market_result = await self.session.execute(
+                select(Market).where(Market.id.in_(market_ids))
+            )
+            markets_by_id = {market.id: market for market in market_result.scalars().all()}
+
+        open_order_count = 0
+        reserved_total = Decimal("0.00")
+        items: list[PortfolioOrderItemResponse] = []
+        grouped_orders: dict[str, list[Order]] = {}
+
+        for order in orders:
+            market = markets_by_id.get(order.market_id)
+            if order.status in {"submitted", "open", "partial"}:
+                open_order_count += 1
+                reserved_total = quantize_money(reserved_total + order.reserved_amount)
+                grouped_orders.setdefault(order.market_id, []).append(order)
+
+            items.append(
+                PortfolioOrderItem(
+                    id=order.id,
+                    market_id=order.market_id,
+                    market_slug=market.slug if market is not None else None,
+                    market_label=(
+                        market.short_label if market is not None else f"Market {order.market_id}"
+                    ),
+                    market_question=market.question if market is not None else None,
+                    side=order.side,
+                    direction=order.direction,
+                    price=quantize_money(order.price),
+                    quantity=quantize_money(order.quantity),
+                    reserved_amount=quantize_money(order.reserved_amount),
+                    status=order.status,
+                    created_at=order.created_at,
+                ).to_response_model()
+            )
+
+        market_exposure_items: list[PortfolioMarketExposureItemResponse] = []
+        for market_id, market_orders in grouped_orders.items():
+            market = markets_by_id.get(market_id)
+            reserved_amount = Decimal("0.00")
+            total_quantity = Decimal("0.00")
+            weighted_total = Decimal("0.00")
+
+            for order in market_orders:
+                reserved_amount = quantize_money(reserved_amount + order.reserved_amount)
+                total_quantity = quantize_money(total_quantity + order.quantity)
+                weighted_total = quantize_money(weighted_total + (order.price * order.quantity))
+
+            average_entry_price = (
+                quantize_money(weighted_total / total_quantity)
+                if total_quantity > Decimal("0.00")
+                else Decimal("0.00")
+            )
+
+            market_exposure_items.append(
+                PortfolioMarketExposureItem(
+                    market_id=market_id,
+                    market_slug=market.slug if market is not None else None,
+                    market_label=(
+                        market.short_label if market is not None else f"Market {market_id}"
+                    ),
+                    market_question=market.question if market is not None else None,
+                    active_order_count=len(market_orders),
+                    reserved_amount=reserved_amount,
+                    total_quantity=total_quantity,
+                    average_entry_price=average_entry_price,
+                    latest_yes_price=(
+                        quantize_money(market.yes_price)
+                        if market is not None
+                        else Decimal("0.00")
+                    ),
+                    latest_no_price=(
+                        quantize_money(market.no_price)
+                        if market is not None
+                        else Decimal("0.00")
+                    ),
+                ).to_response_model()
+            )
+
+        recent_prints: list[PortfolioRecentPrintResponse] = []
+        for market_id in market_ids:
+            market = markets_by_id.get(market_id)
+            if market is None:
+                continue
+
+            for trade in market.trades[:2]:
+                recent_prints.append(
+                    PortfolioRecentPrint(
+                        market_id=market.id,
+                        market_slug=market.slug,
+                        market_label=market.short_label,
+                        side=str(trade.get("side", "")),
+                        price=quantize_money(Decimal(str(trade.get("price", "0")))),
+                        shares=Decimal(str(trade.get("shares", "0"))),
+                        time_label=str(trade.get("time", "")),
+                    ).to_response_model()
+                )
+
+        return PortfolioOrdersResponse(
+            account=account.to_response_model(),
+            exposure=PortfolioExposureResponse(
+                openOrderCount=open_order_count,
+                reservedOrderValueKes=f"{reserved_total:.2f}",
+            ),
+            items=items,
+            markets=market_exposure_items,
+            recentPrints=recent_prints[:6],
+        )
+
     async def get_kyc_profile(self, *, user_id: str) -> KycSubmissionResponse | None:
         account = await self._load_account_snapshot(user_id)
         if account is None:
@@ -931,6 +1159,26 @@ class AccountAccessService:
 
         normalized_limit = max(1, min(limit, 50))
         items: list[AdminWalletSupportItem] = []
+        reviewer_map: dict[str, User] = {}
+
+        if kind_filter in (None, "all", "withdrawal"):
+            reviewer_ids_result = await self.session.execute(
+                select(Withdrawal.reviewed_by_user_id).where(
+                    Withdrawal.reviewed_by_user_id.is_not(None)
+                )
+            )
+            reviewer_ids = {
+                reviewer_id
+                for reviewer_id in reviewer_ids_result.scalars().all()
+                if reviewer_id is not None
+            }
+            if reviewer_ids:
+                reviewers_result = await self.session.execute(
+                    select(User).where(User.id.in_(reviewer_ids))
+                )
+                reviewer_map = {
+                    reviewer.id: reviewer for reviewer in reviewers_result.scalars().all()
+                }
 
         if kind_filter in (None, "all", "deposit"):
             deposit_query = select(Deposit, User).join(User, User.id == Deposit.user_id)
@@ -952,7 +1200,11 @@ class AccountAccessService:
             )
             withdrawals_result = await self.session.execute(withdrawal_query)
             items.extend(
-                self._build_admin_withdrawal_support_item(withdrawal, user)
+                self._build_admin_withdrawal_support_item(
+                    withdrawal,
+                    user,
+                    reviewer_map.get(withdrawal.reviewed_by_user_id or ""),
+                )
                 for withdrawal, user in withdrawals_result.all()
             )
 
@@ -967,6 +1219,136 @@ class AccountAccessService:
         return AdminWalletSupportResponse(
             items=[item.to_response_model() for item in items[:normalized_limit]]
         )
+
+    async def review_withdrawal(
+        self,
+        *,
+        admin_user_id: str,
+        withdrawal_id: str,
+        decision: str,
+        note: str | None,
+    ) -> AdminWalletSupportItemResponse:
+        normalized_decision = decision.strip().lower()
+        if normalized_decision not in {"approved", "rejected"}:
+            raise WalletFundingError("Withdrawal decision must be approved or rejected.")
+
+        payout_result: B2CPayoutResult | None = None
+        approved_amount = Decimal("0.00")
+        approved_phone = ""
+
+        async with self._transaction():
+            await self._assert_admin_user(admin_user_id)
+
+            admin_result = await self.session.execute(select(User).where(User.id == admin_user_id))
+            admin_user = admin_result.scalar_one_or_none()
+            if admin_user is None:
+                raise AuthenticationError("Authenticated user was not found.")
+
+            result = await self.session.execute(
+                select(Withdrawal, User)
+                .join(User, User.id == Withdrawal.user_id)
+                .where(Withdrawal.id == withdrawal_id)
+                .with_for_update()
+            )
+            row = result.one_or_none()
+            if row is None:
+                raise WalletFundingError("Withdrawal review target was not found.")
+
+            withdrawal, _user = row
+            if withdrawal.status != "review_required":
+                raise WalletFundingError("Only review-required withdrawals can be decided here.")
+
+            wallet = await self._get_or_create_wallet_for_update(withdrawal.user_id)
+            withdrawal.reviewed_at = datetime.now(UTC)
+            withdrawal.reviewed_by_user_id = admin_user.id
+
+            if normalized_decision == "rejected":
+                wallet.available_balance = quantize_money(
+                    wallet.available_balance + withdrawal.amount
+                )
+                wallet.reserved_balance = quantize_money(
+                    wallet.reserved_balance - withdrawal.amount
+                )
+                withdrawal.status = "failed"
+                withdrawal.failed_at = datetime.now(UTC)
+                withdrawal.result_desc = note or "Rejected during manual payout review."
+                self.session.add(
+                    LedgerEntry(
+                        id=str(uuid4()),
+                        user_id=withdrawal.user_id,
+                        entry_type="MPESA_WITHDRAWAL_RELEASE",
+                        amount=withdrawal.amount,
+                        currency=wallet.currency,
+                        reference_type="withdrawal",
+                        reference_id=withdrawal.id,
+                        available_balance_after=wallet.available_balance,
+                        reserved_balance_after=wallet.reserved_balance,
+                        note=(
+                            note.strip()
+                            if note and note.strip()
+                            else (
+                                "Manual withdrawal rejection released funds for "
+                                f"{withdrawal.phone}"
+                            )
+                        ),
+                    )
+                )
+            else:
+                approved_amount = quantize_money(withdrawal.amount)
+                approved_phone = withdrawal.phone
+                try:
+                    payout_result = await daraja_client.request_b2c_payout(
+                        phone=withdrawal.phone,
+                        amount=f"{approved_amount:.2f}",
+                    )
+                except DarajaConfigurationError as exc:
+                    raise WalletFundingError(str(exc)) from exc
+                except Exception as exc:  # pragma: no cover
+                    raise WalletFundingError("Could not release the M-Pesa withdrawal.") from exc
+
+                withdrawal.status = "pending"
+                withdrawal.result_desc = (
+                    note.strip() if note and note.strip() else payout_result.response_description
+                )
+                withdrawal.conversation_id = payout_result.conversation_id
+                withdrawal.originator_conversation_id = payout_result.originator_conversation_id
+
+        if (
+            normalized_decision == "approved"
+            and payout_result is not None
+            and settings.daraja_mode == "stub"
+            and settings.daraja_stub_auto_complete
+        ):
+            await self.process_b2c_callback(
+                callback_payload=build_stub_b2c_callback_payload(
+                    conversation_id=payout_result.conversation_id,
+                    originator_conversation_id=payout_result.originator_conversation_id,
+                    amount=approved_amount,
+                    phone=approved_phone,
+                )
+            )
+
+        refreshed_result = await self.session.execute(
+            select(Withdrawal, User)
+            .join(User, User.id == Withdrawal.user_id)
+            .where(Withdrawal.id == withdrawal_id)
+        )
+        refreshed_row = refreshed_result.one_or_none()
+        if refreshed_row is None:
+            raise WalletFundingError("Withdrawal review target was not found after update.")
+
+        refreshed_withdrawal, refreshed_user = refreshed_row
+        reviewer: User | None = None
+        if refreshed_withdrawal.reviewed_by_user_id is not None:
+            reviewer_result = await self.session.execute(
+                select(User).where(User.id == refreshed_withdrawal.reviewed_by_user_id)
+            )
+            reviewer = reviewer_result.scalar_one_or_none()
+        return self._build_admin_withdrawal_support_item(
+            refreshed_withdrawal,
+            refreshed_user,
+            reviewer,
+        ).to_response_model()
 
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         callback = extract_stk_callback(callback_payload)
@@ -1193,7 +1575,7 @@ class AccountAccessService:
         )
 
     def _build_admin_withdrawal_support_item(
-        self, withdrawal: Withdrawal, user: User
+        self, withdrawal: Withdrawal, user: User, reviewer: User | None = None
     ) -> AdminWalletSupportItem:
         if withdrawal.status == "completed":
             subtitle = f"Payout completed to {withdrawal.phone}."
@@ -1217,6 +1599,18 @@ class AccountAccessService:
             amount=quantize_money(withdrawal.amount),
             created_at=withdrawal.created_at,
             updated_at=updated_at,
+            reviewed_at=withdrawal.reviewed_at,
+            reviewed_by_name=reviewer.first_name if reviewer is not None else None,
+            review_decision=(
+                "approved"
+                if (
+                    withdrawal.reviewed_at is not None
+                    and withdrawal.status in {"pending", "completed"}
+                )
+                else "rejected"
+                if withdrawal.reviewed_at is not None and withdrawal.status == "failed"
+                else None
+            ),
         )
 
     def _activity_priority(self, kind: str) -> int:

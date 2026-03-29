@@ -5,6 +5,7 @@ import type { Market } from "@/lib/mock-data";
 import { formatKes } from "@/lib/mock-data";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { ProbabilityPill } from "./probability-pill";
+import { MarketIdentity } from "./market-identity";
 
 type OrderTicketProps = {
   market: Market;
@@ -107,14 +108,32 @@ export function OrderTicket({ market }: OrderTicketProps) {
 
   return (
     <aside className="panel order-ticket">
-      <div className="panel__header">
-        <span className="market-chip">Order ticket</span>
-        <strong>Buy YES</strong>
+      <div className="order-ticket__market-head">
+        <MarketIdentity market={market} size="sm" />
+        <div className="order-ticket__market-copy">
+          <span className="market-chip">Order ticket</span>
+          <strong>{market.shortLabel}</strong>
+        </div>
+      </div>
+
+      <div className="order-ticket__mode-row">
+        <button type="button" className="order-ticket__mode order-ticket__mode--active">
+          Buy
+        </button>
+        <button type="button" className="order-ticket__mode">
+          Sell
+        </button>
+        <span className="order-ticket__mode-label">Market</span>
       </div>
 
       <div className="order-ticket__choice">
         <ProbabilityPill label="YES" value={market.yesPrice} />
         <ProbabilityPill label="NO" value={market.noPrice} tone="no" />
+      </div>
+
+      <div className="order-ticket__amount-stage" aria-label="Order amount snapshot">
+        <span className="order-ticket__amount-label">Amount</span>
+        <strong>{formatKes(estimatedStake)}</strong>
       </div>
 
       <div className="ticket-balance-strip">
@@ -141,6 +160,21 @@ export function OrderTicket({ market }: OrderTicketProps) {
           Shares
           <div className="input-shell">{quantity}</div>
         </label>
+      </div>
+
+      <div className="order-ticket__quick-amounts" aria-label="Quick funding amounts">
+        <button type="button" className="order-ticket__quick-chip">
+          +{formatKes(100)}
+        </button>
+        <button type="button" className="order-ticket__quick-chip">
+          +{formatKes(250)}
+        </button>
+        <button type="button" className="order-ticket__quick-chip">
+          +{formatKes(500)}
+        </button>
+        <button type="button" className="order-ticket__quick-chip">
+          Max
+        </button>
       </div>
 
       <div className="wallet-callout">
@@ -176,16 +210,16 @@ export function OrderTicket({ market }: OrderTicketProps) {
 
       <div className="ticket-summary-grid">
         <div>
-          <span>Estimated stake</span>
+          <span>Cost</span>
           <strong>{formatKes(estimatedStake)}</strong>
         </div>
         <div>
-          <span>Payout if correct</span>
+          <span>Estimated payout</span>
           <strong>{formatKes(quantity)}</strong>
         </div>
       </div>
 
-      <p className="panel-note">
+      <p className="panel-note order-ticket__note">
         Submitting an order moves funds into reserved balance first. Fills can be partial during
         active trading.
       </p>

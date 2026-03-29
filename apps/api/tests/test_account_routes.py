@@ -230,6 +230,69 @@ class FakeAccountService:
             },
         )()
 
+    async def get_portfolio_orders(self, *, user_id: str):
+        assert user_id == "user-1"
+        return type(
+            "PortfolioOrders",
+            (),
+            {
+                "account": build_withdrawn_authenticated_account()
+                .to_snapshot()
+                .to_response_model(),
+                "exposure": {
+                    "openOrderCount": 1,
+                    "reservedOrderValueKes": "4.96",
+                },
+                "items": [
+                    {
+                        "id": "order-1",
+                        "marketId": "demo-market-kenya-election",
+                        "marketSlug": "nairobi-governor-bill-sign-before-june",
+                        "marketLabel": "Nairobi mobility bill",
+                        "marketQuestion": (
+                            "Will Nairobi county sign the urban mobility bill before "
+                            "June 30, 2026?"
+                        ),
+                        "side": "YES",
+                        "direction": "BUY",
+                        "price": "0.62",
+                        "quantity": "8.00",
+                        "reservedAmountKes": "4.96",
+                        "status": "submitted",
+                        "createdAt": datetime.now(UTC).isoformat(),
+                    }
+                ],
+                "markets": [
+                    {
+                        "marketId": "demo-market-kenya-election",
+                        "marketSlug": "nairobi-governor-bill-sign-before-june",
+                        "marketLabel": "Nairobi mobility bill",
+                        "marketQuestion": (
+                            "Will Nairobi county sign the urban mobility bill before "
+                            "June 30, 2026?"
+                        ),
+                        "activeOrderCount": 1,
+                        "reservedAmountKes": "4.96",
+                        "totalQuantity": "8.00",
+                        "averageEntryPriceKes": "0.62",
+                        "latestYesPriceKes": "0.62",
+                        "latestNoPriceKes": "0.38",
+                    }
+                ],
+                "recentPrints": [
+                    {
+                        "marketId": "demo-market-kenya-election",
+                        "marketSlug": "nairobi-governor-bill-sign-before-june",
+                        "marketLabel": "Nairobi mobility bill",
+                        "side": "YES",
+                        "priceKes": "0.62",
+                        "shares": "120",
+                        "timeLabel": "14:05",
+                    }
+                ],
+            },
+        )()
+
     async def get_kyc_profile(self, *, user_id: str):
         assert user_id == "user-1"
         return None
@@ -368,6 +431,35 @@ class FakeAccountService:
                 ]
             },
         )()
+
+    async def review_withdrawal(
+        self,
+        *,
+        admin_user_id: str,
+        withdrawal_id: str,
+        decision: str,
+        note: str | None,
+    ):
+        assert admin_user_id == "user-1"
+        assert withdrawal_id == "withdraw-1"
+        assert decision == "approved"
+        assert note is None
+        return {
+            "id": "withdraw-1",
+            "userId": "user-2",
+            "firstName": "Amina",
+            "phone": "0796000000",
+            "kind": "withdrawal",
+            "status": "completed",
+            "title": "M-Pesa withdrawal",
+            "subtitle": "Payout completed to 0796000000.",
+            "amountKes": "2600.00",
+            "createdAt": datetime.now(UTC).isoformat(),
+            "updatedAt": datetime.now(UTC).isoformat(),
+            "reviewedAt": datetime.now(UTC).isoformat(),
+            "reviewedByName": "Admin",
+            "reviewDecision": "approved",
+        }
 
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         self.callback_payloads.append(callback_payload)
@@ -547,6 +639,19 @@ def test_wallet_transactions_returns_activity_feed() -> None:
     assert payload["items"][1]["kind"] == "deposit"
 
 
+def test_portfolio_orders_returns_reserved_exposure_feed() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/portfolio/orders")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["account"]["wallet"]["availableBalanceKes"] == "305.00"
+    assert payload["exposure"]["openOrderCount"] == 1
+    assert payload["exposure"]["reservedOrderValueKes"] == "4.96"
+    assert payload["items"][0]["marketLabel"] == "Nairobi mobility bill"
+
+
 def test_submit_kyc_returns_pending_profile_shape() -> None:
     client = build_client()
 
@@ -604,6 +709,23 @@ def test_admin_wallet_support_returns_review_queue() -> None:
     assert payload["items"][0]["kind"] == "withdrawal"
     assert payload["items"][0]["status"] == "review_required"
     assert payload["items"][0]["amountKes"] == "2600.00"
+
+
+def test_admin_wallet_support_can_release_review_required_withdrawal() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/admin/wallet/activity/withdraw-1/review",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "withdraw-1"
+    assert payload["status"] == "completed"
+    assert payload["kind"] == "withdrawal"
+    assert payload["reviewedByName"] == "Admin"
+    assert payload["reviewDecision"] == "approved"
 
 
 def test_me_returns_authenticated_account_snapshot() -> None:

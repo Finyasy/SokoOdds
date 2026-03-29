@@ -17,15 +17,15 @@ test("homepage opens directly on the discovery markets surface", async ({ page }
   await page.goto("/");
 
   await expect(
-    page.getByLabel("Market signals").getByRole("button", { name: "Trending now", exact: true })
+    page.getByRole("heading", { name: "Will Bitcoin trade above $110K by April 30?" })
   ).toBeVisible();
   await expect(
-    page.getByLabel("Market signals").getByRole("button", { name: "Ending soon", exact: true })
+    page.getByRole("heading", { name: "Breaking news" })
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {
-      name: /Nairobi mobility bill before June 30\?/i
+      name: /Nairobi mobility bill/i
     }).first()
   ).toBeVisible();
 });
@@ -39,12 +39,12 @@ test("homepage header search and nav filter the board in place", async ({ page }
   await expect(searchInput).toHaveAttribute("placeholder", "Search economy markets...");
   await expect(
     boardGrid.getByRole("link", {
-      name: /CBK cut rate before Sept 30\?/i
+      name: /CBK rate cut/i
     }).first()
   ).toBeVisible();
   await expect(
     boardGrid.getByRole("link", {
-      name: /Gor Mahia above AFC Leopards\?/i
+      name: /Gor Mahia above AFC/i
     })
   ).toHaveCount(0);
 
@@ -56,7 +56,7 @@ test("homepage header search and nav filter the board in place", async ({ page }
   await page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Trending" }).click();
   await expect(
     boardGrid.getByRole("link", {
-      name: /Nairobi mobility bill before June 30\?/i
+      name: /Nairobi mobility bill/i
     }).first()
   ).toBeVisible();
 });
@@ -64,7 +64,7 @@ test("homepage header search and nav filter the board in place", async ({ page }
 test("signal strip controls open focused discovery boards and keep active state visible", async ({
   page
 }) => {
-  await page.goto("/");
+  await page.goto("/markets");
   const boardGrid = page.getByTestId("market-board-grid");
   const activeShortcut = page
     .getByLabel("Market signals")
@@ -79,14 +79,14 @@ test("signal strip controls open focused discovery boards and keep active state 
     "placeholder",
     "Search ending soon economy..."
   );
-  await expect(page).toHaveURL(/\/\?category=Economy&focus=ending-soon$/);
+  await expect(page).toHaveURL(/\/markets\?category=Economy&focus=ending-soon$/);
   await expect(activeShortcut).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByLabel("Market signals").getByRole("button", { name: "Ending soon", exact: true })
   ).toHaveAttribute("aria-pressed", "false");
   await expect(
     boardGrid.getByRole("link", {
-      name: /KES above 135 per USD on June 30\?/i
+      name: /KES above 135/i
     }).first()
   ).toBeVisible();
 
@@ -109,7 +109,7 @@ test("markets page stays feed-first and shows the expanded launch catalogue", as
   await expect(page.getByRole("heading", { name: "All markets" })).toBeVisible();
   await expect(
     page.getByRole("link", {
-      name: /IEBC chair nominee approved before Oct 31\?/i
+      name: /IEBC chair/i
     }).first()
   ).toBeVisible();
 });
@@ -123,12 +123,12 @@ test("market board filters in place by category", async ({ page }) => {
 
   await expect(
     boardGrid.getByRole("link", {
-      name: /CBK cut rate before Sept 30\?/i
+      name: /CBK rate cut/i
     }).first()
   ).toBeVisible();
   await expect(
     boardGrid.getByRole("link", {
-      name: /Gor Mahia above AFC Leopards\?/i
+      name: /Gor Mahia above AFC/i
     })
   ).toHaveCount(0);
   await expect(page).toHaveURL(/\/markets\?category=Economy$/);
@@ -148,7 +148,7 @@ test("market board filters in place by category", async ({ page }) => {
 test("market detail opens with the first-time WhatsApp prompt", async ({ page }) => {
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
-  await expect(page.getByRole("dialog")).toContainText("Follow SokoOdds on WhatsApp");
+  await expect(page.getByRole("dialog")).toContainText("Get SokoOdds market alerts on WhatsApp");
   await expect(
     page.getByRole("heading", {
       name: "Will Nairobi county sign the urban mobility bill before June 30, 2026?"
@@ -166,7 +166,7 @@ test("first-time account setup can reach the M-Pesa verification success state",
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
   await page.getByLabel("First name").fill("Bryan");
   await page.getByLabel("M-Pesa number").fill(phone);
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
@@ -196,7 +196,7 @@ test("a verified first-time wallet can place the sample order and move funds int
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
   await page.getByLabel("First name").fill("Bryan");
   await page.getByLabel("M-Pesa number").fill(phone);
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
@@ -221,7 +221,7 @@ test("a verified wallet can initiate a KES 500 M-Pesa top-up from wallet setup",
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
   await page.getByLabel("First name").fill("Bryan");
   await page.getByLabel("M-Pesa number").fill(phone);
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
@@ -246,7 +246,7 @@ test("a verified wallet can submit KYC details from the wallet sheet", async ({ 
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
   await page.getByLabel("First name").fill("Bryan");
   await page.getByLabel("M-Pesa number").fill(phone);
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
@@ -276,7 +276,7 @@ test("a funded wallet can withdraw KES 200 back to M-Pesa from the wallet sheet"
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
   await page.getByLabel("First name").fill("Bryan");
   await page.getByLabel("M-Pesa number").fill(phone);
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
@@ -309,7 +309,7 @@ test("an allowlisted admin can approve a pending KYC profile from the web review
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
   await page.getByLabel("First name").fill("Bryan");
   await page.getByLabel("M-Pesa number").fill(applicantPhone);
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
@@ -364,7 +364,7 @@ test("an allowlisted admin can inspect withdrawal support activity from the web 
   await page.goto("/markets/nairobi-governor-bill-sign-before-june");
 
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "Sign in to trade" }).first().click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
   await page.getByLabel("First name").fill("Amina");
   await page.getByLabel("M-Pesa number").fill(customerPhone);
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
@@ -400,4 +400,50 @@ test("an allowlisted admin can inspect withdrawal support activity from the web 
     timeout: 5000
   });
   await expect(page.getByTestId("admin-support-queue")).toContainText("M-Pesa withdrawal");
+  await page.getByLabel("Money support status filters").getByRole("button", { name: "completed" }).click();
+  await expect(page.getByTestId("admin-support-queue")).toContainText(customerPhone);
+});
+
+test("portfolio page asks signed-out users to authenticate", async ({ page }) => {
+  await page.goto("/portfolio");
+
+  await expect(page.getByTestId("portfolio-signin-required")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in to continue" })).toBeVisible();
+});
+
+test("portfolio page shows wallet, KYC, and recent activity for a verified user", async ({
+  page
+}) => {
+  const phone = buildUniquePhone();
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Brian");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Add KES 500 via M-Pesa" }).click();
+  await expect(page.getByTestId("wallet-topup-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+  await page.getByRole("button", { name: /Buy 8 YES shares/i }).click();
+  await expect(page.getByTestId("order-ticket-success")).toBeVisible();
+
+  await page.goto("/portfolio");
+
+  await expect(page.getByTestId("portfolio-overview")).toBeVisible();
+  await expect(page.getByTestId("portfolio-available-balance")).toContainText("Ksh 500.04");
+  await expect(page.getByTestId("portfolio-phone")).toContainText(phone);
+  await expect(page.getByTestId("portfolio-activity")).toContainText("M-Pesa wallet top-up");
+  await expect(page.getByTestId("portfolio-open-order-count")).toContainText("1 live");
+  await expect(page.getByTestId("portfolio-reserved-order-value")).toContainText("Ksh 4.96");
+  await expect(page.getByTestId("portfolio-orders")).toContainText("Nairobi mobility bill");
+  await expect(page.getByTestId("portfolio-market-exposure")).toContainText("Nairobi mobility bill");
+  await expect(page.getByTestId("portfolio-recent-prints")).toContainText("YES print");
 });

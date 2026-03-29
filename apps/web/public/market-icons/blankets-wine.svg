@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Blankets and Wine icon</title>
+  <rect width="64" height="64" rx="16" fill="#581c87" />
+  <path d="M14 40c8-9 28-9 36 0" fill="#f5d0fe" />
+  <path d="M17 44h30a5 5 0 0 1 5 5v1H12v-1a5 5 0 0 1 5-5Z" fill="#fdf2f8" />
+  <path d="M31 16c4 0 7 3 7 7 0 3-2 6-5 7v6h-4v-6c-3-1-5-4-5-7 0-4 3-7 7-7Z" fill="#f59e0b" />
+  <rect x="29" y="12" width="6" height="6" rx="3" fill="#fde68a" />
+</svg>

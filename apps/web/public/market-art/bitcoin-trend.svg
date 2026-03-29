@@ -1,0 +1,20 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="720" rx="40" fill="#FFF9F0"/>
+  <rect x="56" y="64" width="1088" height="592" rx="32" fill="url(#bg)"/>
+  <circle cx="195" cy="180" r="74" fill="#F7931A"/>
+  <path d="M187 123h17c26 0 44 11 44 33 0 13-8 23-21 28 17 4 28 15 28 32 0 27-23 41-57 41h-11v28h-18v-28h-19v-15h19v-104h-19v-15h19v-16h18v16Zm0 32v28h15c17 0 27-5 27-15 0-9-8-13-24-13h-18Zm0 42v31h17c20 0 31-5 31-16 0-10-10-15-29-15h-19Z" fill="white"/>
+  <path d="M368 506C436 475 494 446 560 414C624 383 677 290 732 250C790 207 843 220 902 258C954 292 997 348 1054 360" stroke="#2B5BE7" stroke-width="24" stroke-linecap="round"/>
+  <path d="M363 550C423 520 489 514 548 482C610 448 647 355 703 319C767 276 837 311 895 330C949 347 999 341 1048 322" stroke="#8FB9FF" stroke-width="18" stroke-linecap="round" opacity="0.9"/>
+  <path d="M370 401H1050" stroke="#D7E4FF" stroke-width="4" stroke-linecap="round" stroke-dasharray="4 16"/>
+  <path d="M370 278H1050" stroke="#E9EEF8" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 18"/>
+  <rect x="794" y="110" width="224" height="86" rx="22" fill="white" fill-opacity="0.88"/>
+  <text x="832" y="146" fill="#5E6B7E" font-family="Arial, sans-serif" font-size="24" font-weight="700">BTC</text>
+  <text x="832" y="178" fill="#0F172A" font-family="Arial, sans-serif" font-size="34" font-weight="800">$110K</text>
+  <defs>
+    <linearGradient id="bg" x1="108" y1="104" x2="1102" y2="614" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7E8"/>
+      <stop offset="0.52" stop-color="#F3F7FF"/>
+      <stop offset="1" stop-color="#EEF8FF"/>
+    </linearGradient>
+  </defs>
+</svg>

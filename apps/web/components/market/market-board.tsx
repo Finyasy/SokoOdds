@@ -24,6 +24,10 @@ type MarketBoardProps = {
   footerText: string;
   footerHref: string;
   footerLabel: string;
+  showMoreHref?: string;
+  showMoreLabel?: string;
+  showUrgentRail?: boolean;
+  showBoardOverview?: boolean;
 };
 
 export function MarketBoard({
@@ -39,9 +43,14 @@ export function MarketBoard({
   onClearDiscovery,
   footerText,
   footerHref,
-  footerLabel
+  footerLabel,
+  showMoreHref,
+  showMoreLabel,
+  showUrgentRail = true,
+  showBoardOverview = false
 }: MarketBoardProps) {
   const urgentMarkets = filteredMarkets.filter((market) => market.status === "Closing Soon").slice(0, 3);
+  const openMarkets = filteredMarkets.filter((market) => market.status === "Open").length;
   const countLabel = `${filteredMarkets.length} ${countQualifier} contract${
     filteredMarkets.length === 1 ? "" : "s"
   }`;
@@ -51,6 +60,7 @@ export function MarketBoard({
   }`;
   const boardScope = formatDiscoveryBoardScope(activeFilter, activeFocus);
   const trimmedSearchQuery = searchQuery.trim();
+  const leadMarket = filteredMarkets[0];
 
   return (
     <section
@@ -65,6 +75,33 @@ export function MarketBoard({
         </div>
         <span className="markets-feed__count">{countLabel}</span>
       </div>
+
+      {showBoardOverview && leadMarket ? (
+        <div className="catalog-overview">
+          <div className="catalog-overview__lead">
+            <span className="catalog-overview__label">Board scope</span>
+            <strong>{boardScope}</strong>
+            <p>
+              Lead contract: <strong>{leadMarket.shortLabel}</strong>,{" "}
+              <strong>{Math.round(leadMarket.yesPrice * 100)}%</strong> YES.
+            </p>
+          </div>
+          <div className="catalog-overview__stats">
+            <div>
+              <span>Open</span>
+              <strong>{openMarkets}</strong>
+            </div>
+            <div>
+              <span>Closing soon</span>
+              <strong>{urgentMarkets.length}</strong>
+            </div>
+            <div>
+              <span>Active filter</span>
+              <strong>{activeFilter}</strong>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {hasActiveFocus ? (
         <div className="market-board-focus" data-testid="market-board-focus">
@@ -92,7 +129,7 @@ export function MarketBoard({
         ))}
       </div>
 
-      {urgentMarkets.length ? (
+      {showUrgentRail && urgentMarkets.length ? (
         <div className="market-rail" aria-label="Ending soon markets">
           <span className="market-rail__label">Ending soon</span>
           <div className="market-rail__items">
@@ -129,6 +166,14 @@ export function MarketBoard({
           </button>
         </div>
       )}
+
+      {showMoreHref && showMoreLabel && filteredMarkets.length ? (
+        <div className="market-board__show-more">
+          <Link href={showMoreHref} className="ghost-button ghost-button--centered">
+            {showMoreLabel}
+          </Link>
+        </div>
+      ) : null}
 
       <div className="landing-feed__footer">
         <span>{footerText}</span>

@@ -35,6 +35,7 @@ Already live in the checked-in app:
 - search placeholder and empty-state copy now adapt to the active board, so `Economy` and `Ending soon economy` feel like real contexts rather than generic filters
 - board title, count, and market grid now transition softly during discovery changes instead of snapping abruptly
 - market cards use a calmer ivory modular surface with thin borders, soft shadows, and dense YES/NO actions
+- market cards now trim repeated YES/NO micro-labels and secondary clutter so the scan path is faster
 - the seed catalogue now carries a fuller launch board so the first scroll feels alive without inventing off-brand novelty markets
 - a thin market-signals strip now surfaces `Trending now` and `Ending soon` above the grid without turning the page back into a hero
 - signal-strip labels and micro-links now focus the homepage board in place instead of kicking users out of discovery
@@ -43,7 +44,9 @@ Already live in the checked-in app:
 - the `/markets` page now inherits the same signal-strip language in a flatter catalog treatment, so discovery stays consistent without making the catalog feel promotional
 - `/markets` discovery interactions now sync back into the URL, so category and focus views survive reloads and can be shared directly
 - category chips now filter the board in place instead of forcing a route change
-- a slim `Ending soon` rail adds urgency without reintroducing clutter
+- the homepage featured market has been simplified to one probability emphasis, one short context note, and one chart
+- duplicated inline `Ending soon` rails have been removed from the main boards so urgency only appears once, in the signal strip
+- the footer has been compressed into a shorter three-column close so the page ends like a product board instead of a brochure
 - first market-detail visit shows a dismissible WhatsApp prompt
 - the trading CTA opens a lightweight account setup sheet
 - account creation is backed by the API through a same-origin Next.js route

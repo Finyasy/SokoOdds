@@ -1,6 +1,7 @@
 import { SiteFooter } from "@/components/layout/site-footer";
 import { MarketDiscoveryShell } from "@/components/market/market-discovery-shell";
 import { getMarkets } from "@/lib/market-api";
+import { homeHeroMarkets } from "@/lib/mock-data";
 import {
   parseDiscoveryCategory,
   parseDiscoveryFocus,
@@ -17,7 +18,7 @@ type HomePageProps = {
 
 export default async function HomePage({ searchParams }: HomePageProps) {
   const markets = await getMarkets();
-  const discoveryMarkets = markets.slice(0, 8);
+  const discoveryMarkets = markets;
   const resolvedSearchParams = (await searchParams) ?? {};
   const initialCategory = parseDiscoveryCategory(readSingleSearchParam(resolvedSearchParams.category));
   const initialFocus = parseDiscoveryFocus(readSingleSearchParam(resolvedSearchParams.focus));
@@ -30,14 +31,18 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         kicker="Live discovery"
         countQualifier="live"
         markets={discoveryMarkets}
-        footerText="Smaller market set, clearer depth, faster scanning."
+        footerText="Built for quick scanning, public-source trust, and cleaner trade decisions."
         footerHref="/markets"
-        footerLabel="Show more markets"
+        footerLabel="Browse the full board"
+        showMoreHref="/markets"
+        showMoreLabel="Show more markets"
         initialCategory={initialCategory}
         initialFocus={initialFocus}
         initialSearchQuery={initialSearchQuery}
-        showSignalStrip
+        showTrendingHero
+        heroMarkets={homeHeroMarkets}
         syncDiscoveryToUrl
+        showUrgentRail={false}
       />
       <SiteFooter />
     </>

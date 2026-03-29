@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Sauti Sol live icon</title>
+  <rect width="64" height="64" rx="16" fill="#431407" />
+  <circle cx="24" cy="28" r="10" fill="#fb923c" opacity="0.9" />
+  <circle cx="40" cy="28" r="10" fill="#fdba74" opacity="0.8" />
+  <rect x="18" y="40" width="28" height="6" rx="3" fill="#ffe4e6" />
+  <path d="M17 18c6-7 24-7 30 0" stroke="#f97316" stroke-width="3" stroke-linecap="round" fill="none" />
+</svg>

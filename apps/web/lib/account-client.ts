@@ -81,6 +81,57 @@ export type WalletTransactionsResponse = {
   items: WalletTransactionItem[];
 };
 
+export type PortfolioOrderItem = {
+  id: string;
+  marketId: string;
+  marketSlug: string | null;
+  marketLabel: string;
+  marketQuestion: string | null;
+  side: string;
+  direction: string;
+  price: string;
+  quantity: string;
+  reservedAmountKes: string;
+  status: string;
+  createdAt: string;
+};
+
+export type PortfolioExposure = {
+  openOrderCount: number;
+  reservedOrderValueKes: string;
+};
+
+export type PortfolioMarketExposureItem = {
+  marketId: string;
+  marketSlug: string | null;
+  marketLabel: string;
+  marketQuestion: string | null;
+  activeOrderCount: number;
+  reservedAmountKes: string;
+  totalQuantity: string;
+  averageEntryPriceKes: string;
+  latestYesPriceKes: string;
+  latestNoPriceKes: string;
+};
+
+export type PortfolioRecentPrint = {
+  marketId: string;
+  marketSlug: string | null;
+  marketLabel: string;
+  side: string;
+  priceKes: string;
+  shares: string;
+  timeLabel: string;
+};
+
+export type PortfolioOrdersResponse = {
+  account: AccountSnapshot;
+  exposure: PortfolioExposure;
+  items: PortfolioOrderItem[];
+  markets: PortfolioMarketExposureItem[];
+  recentPrints: PortfolioRecentPrint[];
+};
+
 export type KycProfileResponse = {
   status: string;
   legalName: string;
@@ -126,11 +177,16 @@ export type AdminWalletSupportItem = {
   amountKes: string;
   createdAt: string;
   updatedAt: string;
+  reviewedAt: string | null;
+  reviewedByName: string | null;
+  reviewDecision: string | null;
 };
 
 export type AdminWalletSupportResponse = {
   items: AdminWalletSupportItem[];
 };
+
+export type AdminWithdrawalReviewResponse = AdminWalletSupportItem;
 
 type AccountApiErrorShape = {
   detail?: string;
@@ -297,6 +353,19 @@ export async function fetchWalletTransactions(): Promise<WalletTransactionsRespo
   return payload;
 }
 
+export async function fetchPortfolioOrders(): Promise<PortfolioOrdersResponse> {
+  const response = await fetch("/api/account/portfolio/orders", {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<PortfolioOrdersResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.account || !Array.isArray(payload.items) || !payload.exposure) {
+    throw new Error(getErrorMessage(payload, "Could not read portfolio orders."));
+  }
+
+  return payload;
+}
+
 export async function submitKycProfile(input: {
   legalName: string;
   nationalIdNumber: string;
@@ -314,6 +383,25 @@ export async function submitKycProfile(input: {
   const payload = await readJson<KycSubmissionResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.account || !payload.profile) {
     throw new Error(getErrorMessage(payload, "Could not submit the KYC profile."));
+  }
+
+  return payload;
+}
+
+export async function fetchMyKycProfile(): Promise<KycSubmissionResponse | null> {
+  const response = await fetch("/api/account/kyc", {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<(KycSubmissionResponse & AccountApiErrorShape) | null>(response);
+  if (response.status === 401) {
+    throw new Error("Sign in before checking KYC.");
+  }
+  if (!response.ok) {
+    throw new Error(getErrorMessage(payload, "Could not read the KYC profile."));
+  }
+  if (!payload) {
+    return null;
   }
 
   return payload;
@@ -380,6 +468,30 @@ export async function fetchAdminWalletSupport(input?: {
   const payload = await readJson<AdminWalletSupportResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload || !Array.isArray(payload.items)) {
     throw new Error(getErrorMessage(payload, "Could not load wallet support activity."));
+  }
+
+  return payload;
+}
+
+export async function reviewAdminWithdrawal(input: {
+  withdrawalId: string;
+  decision: "approved" | "rejected";
+  note?: string;
+}): Promise<AdminWithdrawalReviewResponse> {
+  const response = await fetch(`/api/account/admin/support/${input.withdrawalId}/review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      decision: input.decision,
+      note: input.note ?? null
+    })
+  });
+
+  const payload = await readJson<AdminWithdrawalReviewResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.id) {
+    throw new Error(getErrorMessage(payload, "Could not review the withdrawal."));
   }
 
   return payload;

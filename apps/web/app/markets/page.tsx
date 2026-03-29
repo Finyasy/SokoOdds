@@ -26,18 +26,24 @@ export default async function MarketsPage({ searchParams }: MarketsPageProps) {
     <>
       <MarketDiscoveryShell
         title="All markets"
-        kicker="Market board"
-        countQualifier="active launch"
+        kicker="Live catalogue"
+        countQualifier="active board"
         markets={markets}
-        footerText="Focused launch catalogue for politics, football, economy, weather, and culture."
+        footerText="A Kenya-first catalogue shaped for clean scanning, market identity, and clearer odds."
         footerHref="/markets/nairobi-governor-bill-sign-before-june"
-        footerLabel="Open sample market"
+        footerLabel="Open a featured market"
         initialCategory={initialCategory}
         initialFocus={initialFocus}
         initialSearchQuery={initialSearchQuery}
         showSignalStrip
         signalStripTone="catalog"
         syncDiscoveryToUrl
+        showTrendingHero
+        heroMarkets={markets}
+        showMoreHref="/markets?category=All"
+        showMoreLabel="Show more markets"
+        showUrgentRail={false}
+        showBoardOverview
       />
       <SiteFooter />
     </>

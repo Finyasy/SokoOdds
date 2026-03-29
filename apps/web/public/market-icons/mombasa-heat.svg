@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Mombasa heat icon</title>
+  <rect width="64" height="64" rx="16" fill="#7c2d12" />
+  <circle cx="32" cy="28" r="12" fill="#fdba74" />
+  <path d="M32 10v6M32 40v6M14 28h6M44 28h6M20 16l4 4M40 40l4 4M44 16l-4 4M20 40l-4 4" stroke="#fb923c" stroke-width="3" stroke-linecap="round" />
+</svg>

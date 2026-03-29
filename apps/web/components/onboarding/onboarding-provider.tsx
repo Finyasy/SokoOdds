@@ -26,8 +26,10 @@ import {
   type WalletTransactionItem,
   verifyMpesaWallet
 } from "@/lib/account-client";
+import { SokoOddsBadge } from "@/components/layout/sokoodds-logo";
 
 const STORAGE_KEY = "sokoodds.onboarding";
+const WHATSAPP_SESSION_KEY = "sokoodds.whatsappPromptShownSession";
 const WHATSAPP_ALERTS_URL =
   "https://wa.me/254700505050?text=Hi%20SokoOdds%2C%20send%20me%20market%20alerts%20on%20WhatsApp.";
 
@@ -119,6 +121,22 @@ function loadStoredState(): Partial<OnboardingState> {
   } catch {
     return {};
   }
+}
+
+function hasShownWhatsAppPromptThisSession() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.sessionStorage.getItem(WHATSAPP_SESSION_KEY) === "1";
+}
+
+function markWhatsAppPromptShownThisSession() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(WHATSAPP_SESSION_KEY, "1");
 }
 
 function normalizePhone(value: string) {
@@ -243,16 +261,22 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!pathname.startsWith("/markets/") || state.hasSeenWhatsAppPrompt) {
+    if (
+      !pathname.startsWith("/markets/") ||
+      state.hasSeenWhatsAppPrompt ||
+      accountSheetView !== "closed" ||
+      hasShownWhatsAppPromptThisSession()
+    ) {
       return;
     }
 
     const timer = window.setTimeout(() => {
+      markWhatsAppPromptShownThisSession();
       setShowWhatsAppPrompt(true);
     }, 550);
 
     return () => window.clearTimeout(timer);
-  }, [isHydrated, pathname, state.hasSeenWhatsAppPrompt]);
+  }, [accountSheetView, isHydrated, pathname, state.hasSeenWhatsAppPrompt]);
 
   useEffect(() => {
     if (accountSheetView !== "verify" || !state.isSignedIn) {
@@ -634,18 +658,22 @@ function WhatsAppPrompt() {
           </div>
           <span>Market alerts</span>
         </div>
-        <div className="dialog-pill">Fresh market alerts</div>
-        <h2>Follow SokoOdds on WhatsApp before this market moves.</h2>
+        <div className="dialog-brand">
+          <SokoOddsBadge className="dialog-brand__badge" alt="SokoOdds WhatsApp alerts" />
+          <span>SokoOdds alerts</span>
+        </div>
+        <div className="dialog-pill">Market alerts</div>
+        <h2>Get SokoOdds market alerts on WhatsApp.</h2>
         <p>
-          Get pause notices, fast settlement updates, and new Kenya-first market drops without
-          digging through the app.
+          Get pause notices, settlement updates, and new Kenya-first market drops without digging
+          through the app.
         </p>
 
         <div className="dialog-feature">
           <div className="dialog-feature__badge">WA</div>
           <div>
-            <strong>WhatsApp alert lane</strong>
-            <p>Best for closing-soon markets, disputed outcomes, and M-Pesa downtime notices.</p>
+            <strong>WhatsApp alerts</strong>
+            <p>Best for closing markets, disputed outcomes, and M-Pesa downtime notices.</p>
           </div>
         </div>
 
@@ -741,6 +769,10 @@ function AccountSheet() {
           </div>
           <span>{accountSheetView === "account" ? "Wallet setup" : "M-Pesa verification"}</span>
         </div>
+        <div className="dialog-brand">
+          <SokoOddsBadge className="dialog-brand__badge" alt="SokoOdds wallet setup" />
+          <span>SokoOdds wallet</span>
+        </div>
         {accountSheetView === "account" ? (
           <>
             <div className="dialog-pill">Start in under 30 seconds</div>
@@ -773,8 +805,7 @@ function AccountSheet() {
             </div>
 
             <div className="dialog-inline-note">
-              Your first KES 5 verification payment is credited back to your wallet after the phone
-              check succeeds.
+              Your first KES 5 verification payment is credited back after the phone check succeeds.
             </div>
 
             {accountError ? (
@@ -809,20 +840,19 @@ function AccountSheet() {
             <h2>Verify your M-Pesa for instant withdrawals.</h2>
             <p>
               Link one number once, send a KES 5 verification prompt, and keep payouts tied to the
-              same phone with less support friction later.
+              same phone.
             </p>
 
             <div className="dialog-feature dialog-feature--soft">
               <div className="dialog-feature__badge dialog-feature__badge--mpesa">M</div>
               <div>
                 <strong>Instant withdrawal setup</strong>
-                <p>The KES 5 verification amount is returned to your wallet after the check.</p>
+                <p>The KES 5 verification amount is returned after the check.</p>
               </div>
             </div>
 
             <div className="dialog-inline-note">
-              Use the number that should receive your payouts. You can update it later from wallet
-              settings after re-verification.
+              Use the number that should receive payouts. You can update it later after re-verification.
             </div>
 
             {accountError ? (
@@ -841,7 +871,7 @@ function AccountSheet() {
             ) : (
               <div className="dialog-status">
                 <strong>KES 5 verification payment</strong>
-                <p>We send this as the first trust-building step for new trading accounts.</p>
+                <p>This is the first trust check for new trading accounts.</p>
               </div>
             )}
 

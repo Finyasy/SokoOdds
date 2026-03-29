@@ -1,7 +1,7 @@
 import { formatPercent } from "@/lib/mock-data";
 
 type ProbabilityPillProps = {
-  label: "YES" | "NO";
+  label: string;
   value: number;
   tone?: "yes" | "no";
 };
@@ -9,7 +9,7 @@ type ProbabilityPillProps = {
 export function ProbabilityPill({
   label,
   value,
-  tone = label === "YES" ? "yes" : "no"
+  tone = label === "NO" ? "no" : "yes"
 }: ProbabilityPillProps) {
   return (
     <div className={`probability-pill probability-pill--${tone}`}>

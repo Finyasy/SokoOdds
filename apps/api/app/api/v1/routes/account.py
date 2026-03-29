@@ -11,12 +11,15 @@ from app.core.config import settings
 from app.schemas.account import (
     AdminKycQueueResponse,
     AdminKycReviewRequest,
+    AdminWalletSupportItemResponse,
     AdminWalletSupportResponse,
+    AdminWithdrawalReviewRequest,
     AuthOnboardRequest,
     AuthOnboardResponse,
     KycProfileRequest,
     KycSubmissionResponse,
     MeResponse,
+    PortfolioOrdersResponse,
     WalletDepositRequest,
     WalletDepositResponse,
     WalletDepositStatusResponse,
@@ -169,6 +172,21 @@ async def get_wallet_deposit_status(
         )
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/portfolio/orders",
+    status_code=status.HTTP_200_OK,
+    response_model=PortfolioOrdersResponse,
+)
+async def get_portfolio_orders(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> PortfolioOrdersResponse:
+    try:
+        return await account_service.get_portfolio_orders(user_id=account.user.id)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
 @router.post("/wallet/deposit/callback", status_code=status.HTTP_200_OK)
@@ -338,6 +356,30 @@ async def list_admin_wallet_activity(
         )
     except AuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.post(
+    "/admin/wallet/activity/{withdrawal_id}/review",
+    status_code=status.HTTP_200_OK,
+    response_model=AdminWalletSupportItemResponse,
+)
+async def review_admin_wallet_withdrawal(
+    withdrawal_id: str,
+    payload: AdminWithdrawalReviewRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> AdminWalletSupportItemResponse:
+    try:
+        return await account_service.review_withdrawal(
+            admin_user_id=account.user.id,
+            withdrawal_id=withdrawal_id,
+            decision=payload.decision,
+            note=payload.note,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/wallet/withdraw/callback", status_code=status.HTTP_200_OK)

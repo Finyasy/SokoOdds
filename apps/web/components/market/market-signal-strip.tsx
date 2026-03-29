@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Market } from "@/lib/mock-data";
 import { type DiscoveryCategory, type DiscoveryFocus } from "@/lib/market-discovery";
 import { formatClosingLabel, formatKes, formatPercent } from "@/lib/mock-data";
+import { MarketIdentity } from "./market-identity";
 
 type MarketSignalStripProps = {
   markets: Market[];
@@ -98,6 +99,7 @@ export function MarketSignalStrip({
         <div className="signal-strip__items">
           {trendingMarkets.map((market) => (
             <Link key={market.slug} href={`/markets/${market.slug}`} className="signal-strip__item">
+              <MarketIdentity market={market} size="sm" />
               <div className="signal-strip__copy">
                 <strong>{market.shortLabel}</strong>
                 <span>
@@ -158,6 +160,7 @@ export function MarketSignalStrip({
         <div className="signal-strip__items">
           {endingSoonMarkets.map((market) => (
             <Link key={market.slug} href={`/markets/${market.slug}`} className="signal-strip__item">
+              <MarketIdentity market={market} size="sm" />
               <div className="signal-strip__copy">
                 <strong>{market.shortLabel}</strong>
                 <span>

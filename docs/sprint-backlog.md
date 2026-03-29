@@ -79,7 +79,7 @@ Current shipped behavior:
 - homepage now uses a thin signal strip for `Trending now` and `Ending soon` before the main board instead of a promotional hero panel
 - shared card surfaces use a calmer ivory modular style with soft borders and glanceable YES/NO actions
 - the launch catalogue has been expanded so the homepage and market board feel populated without drifting away from Kenya-first categories
-- category chips now filter in place on the board, and a compact urgency rail keeps closing markets visible without cluttering the page
+- category chips now filter in place on the board, and urgency now lives in the signal strip instead of repeating lower on the page
 - homepage search and top navigation now drive the same in-place discovery state as the market board
 - signal-strip shortcuts now focus the homepage board in place, and the active shortcut stays visible for focused boards such as `Trending politics` and `Ending soon economy`
 - homepage discovery state now also syncs to URL params, so filtered landing-page views can be copied, reloaded, and shared
@@ -88,6 +88,8 @@ Current shipped behavior:
 - the `/markets` catalog now inherits the same signal-strip language in a quieter, flatter variant so discovery feels consistent across both entry surfaces
 - `/markets` discovery state now syncs to URL params so filtered catalog boards can be reloaded, bookmarked, and shared
 - discovery updates now use a softer transition so title, count, and grid changes feel less abrupt
+- the homepage feature market is now materially quieter, with one probability story, one short context note, and less commentary density
+- the footer is now shorter and less brochure-like, so the landing page keeps a tighter market-product feel
 - market detail uses a first-visit WhatsApp prompt with dismissal persistence
 - the order ticket can open a lightweight account setup flow
 - the web app uses same-origin proxy routes plus an HTTP-only session cookie for account state
@@ -100,6 +102,10 @@ Current shipped behavior:
 - the wallet sheet now supports a first lightweight KYC submission step, and the API includes admin review endpoints plus a feature-flagged order gate for approved KYC
 - the web app now includes a minimal `/admin/kyc` review board backed by the same account session flow, so allowlisted admins can approve or reject KYC profiles without leaving the product UI
 - the web app now includes a minimal `/admin/support` board so allowlisted admins can inspect recent deposit and withdrawal states from the same session-backed product shell
+- allowlisted admins can now approve or reject `review_required` withdrawals from `/admin/support`, with wallet release or payout initiation handled in the backend
+- reviewed payout items on `/admin/support` now show a compact review trail so support can see who acted and when without dropping to the database
+- `/admin/support` now includes a small triage layer for `Needs review`, `Reviewed`, and `Failed`, so payout ops can narrow the queue quickly without turning the page into a heavy case-management surface
+- the web app now includes a first `/portfolio` surface, so signed-in users can review wallet cash, reserved funds, KYC status, recent money movement, and open-order exposure outside the market-sheet overlay
 
 Still pending in later sprints:
 

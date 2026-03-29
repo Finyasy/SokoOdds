@@ -49,8 +49,10 @@ The checked-in local stack is defined in [infra/compose/compose.yaml](infra/comp
 - trigger the `KES 500` M-Pesa top-up and confirm the wallet refreshes after the deposit completes
 - trigger the `KES 200` withdrawal and confirm the wallet balance drops while the payout completes
 - submit the lightweight KYC form from the wallet sheet and confirm it moves into `KYC pending`
+- open [http://localhost:3000/portfolio](http://localhost:3000/portfolio) to review wallet cash, reserved funds, KYC status, recent money movement, and open-order exposure in one account surface
 - switch to [http://localhost:3000/admin/kyc](http://localhost:3000/admin/kyc), sign in with an allowlisted admin number, and review the pending KYC applicant
 - switch to [http://localhost:3000/admin/support](http://localhost:3000/admin/support) and inspect recent deposits and withdrawals from the admin support queue
+- release or reject `review_required` withdrawals from the same admin support queue when manual payout review is needed
 - confirm the wallet sheet now shows recent verification, top-up, and withdrawal activity inline
 - place the sample order and confirm available versus reserved balance updates
 
@@ -64,7 +66,9 @@ The current Playwright coverage in `pnpm test:e2e:web` verifies:
 - lightweight KYC submission from the wallet sheet
 - admin KYC approval from the web review queue
 - admin wallet support visibility for deposits and withdrawals
+- admin approval and rejection actions for `review_required` withdrawals
 - wallet activity visibility after funding and payout actions
+- signed-out and signed-in portfolio/account overview states
 - first live order submission from the order ticket
 
 The local scripts default to `localhost` for API and engine probes. If another project is already bound to the same ports on `127.0.0.1`, keep `API_HOST=localhost` and `ENGINE_HOST=localhost` in `.env`, or move the ports in `.env` to avoid collisions.

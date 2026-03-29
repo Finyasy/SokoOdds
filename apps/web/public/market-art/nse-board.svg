@@ -1,0 +1,24 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="720" rx="40" fill="#F8FCFC"/>
+  <rect x="56" y="64" width="1088" height="592" rx="32" fill="url(#bg)"/>
+  <rect x="120" y="126" width="310" height="174" rx="28" fill="white" fill-opacity="0.9"/>
+  <text x="156" y="184" fill="#4B5563" font-family="Arial, sans-serif" font-size="24" font-weight="700">NSE 20</text>
+  <text x="156" y="238" fill="#0F172A" font-family="Arial, sans-serif" font-size="48" font-weight="800">4,700</text>
+  <text x="156" y="274" fill="#0F766E" font-family="Arial, sans-serif" font-size="24" font-weight="700">Quarter-end line</text>
+  <rect x="520" y="126" width="540" height="410" rx="28" fill="white" fill-opacity="0.82"/>
+  <path d="M590 436C640 390 690 398 734 360C787 314 814 220 862 202C920 181 983 246 1020 230" stroke="#0F766E" stroke-width="20" stroke-linecap="round"/>
+  <path d="M590 477C633 453 675 462 719 430C766 395 809 314 857 294C903 275 957 304 1018 338" stroke="#6EA8FF" stroke-width="14" stroke-linecap="round"/>
+  <path d="M590 322H1016" stroke="#DDE9E7" stroke-width="4" stroke-dasharray="4 16"/>
+  <path d="M590 230H1016" stroke="#EAF1F2" stroke-width="3" stroke-dasharray="4 18"/>
+  <rect x="120" y="352" width="310" height="184" rx="28" fill="#0F766E" fill-opacity="0.08"/>
+  <text x="156" y="406" fill="#4B5563" font-family="Arial, sans-serif" font-size="24" font-weight="700">Leading desks</text>
+  <text x="156" y="454" fill="#0F172A" font-family="Arial, sans-serif" font-size="32" font-weight="800">Banks</text>
+  <text x="156" y="500" fill="#0F172A" font-family="Arial, sans-serif" font-size="32" font-weight="800">Telcos</text>
+  <defs>
+    <linearGradient id="bg" x1="105" y1="104" x2="1090" y2="618" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FFFE"/>
+      <stop offset="0.48" stop-color="#EFF7FF"/>
+      <stop offset="1" stop-color="#FFF9EF"/>
+    </linearGradient>
+  </defs>
+</svg>

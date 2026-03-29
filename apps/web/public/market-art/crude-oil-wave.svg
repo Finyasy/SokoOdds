@@ -1,0 +1,19 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="720" rx="40" fill="#FFF9F1"/>
+  <rect x="56" y="64" width="1088" height="592" rx="32" fill="url(#bg)"/>
+  <rect x="108" y="112" width="220" height="220" rx="36" fill="#18181B"/>
+  <path d="M219.5 161C236 183 269 219 269 255C269 287 246.5 312 218 312C189.5 312 167 287 167 255C167 220 201 184 219.5 161Z" fill="white"/>
+  <path d="M447 493C517 446 566 356 640 312C706 272 807 263 882 216C932 184 983 140 1052 124" stroke="#2B5BE7" stroke-width="22" stroke-linecap="round"/>
+  <path d="M451 539C522 502 570 452 634 422C711 385 805 387 878 344C947 303 988 238 1045 219" stroke="#F59E0B" stroke-width="18" stroke-linecap="round"/>
+  <path d="M451 585C519 560 590 559 654 534C739 500 808 447 886 431C936 420 991 423 1043 446" stroke="#FF7A00" stroke-width="14" stroke-linecap="round"/>
+  <rect x="846" y="102" width="188" height="82" rx="20" fill="white" fill-opacity="0.9"/>
+  <text x="882" y="136" fill="#5E6B7E" font-family="Arial, sans-serif" font-size="22" font-weight="700">CL</text>
+  <text x="882" y="168" fill="#0F172A" font-family="Arial, sans-serif" font-size="34" font-weight="800">$100</text>
+  <defs>
+    <linearGradient id="bg" x1="104" y1="102" x2="1105" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7EC"/>
+      <stop offset="0.5" stop-color="#F7F6FF"/>
+      <stop offset="1" stop-color="#FFF3DB"/>
+    </linearGradient>
+  </defs>
+</svg>

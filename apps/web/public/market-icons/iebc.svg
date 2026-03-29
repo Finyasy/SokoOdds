@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>IEBC icon</title>
+  <rect width="64" height="64" rx="16" fill="#14532d" />
+  <rect x="16" y="14" width="32" height="36" rx="6" fill="#ecfdf5" />
+  <path d="M24 26h16M24 34h16M24 42h10" stroke="#166534" stroke-width="3" stroke-linecap="round" />
+  <path d="m38 18 6 6-10 10-6 2 2-6 8-8z" fill="#22c55e" />
+</svg>

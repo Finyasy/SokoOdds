@@ -205,6 +205,10 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 
 `GET /api/v1/admin/wallet/activity`
 
+### Admin Withdrawal Review Endpoint
+
+`POST /api/v1/admin/wallet/activity/{withdrawalId}/review`
+
 ### Admin Wallet Support Query Params
 
 - `status`: optional, one of `pending`, `review_required`, `failed`, `completed`, or `all`
@@ -218,6 +222,26 @@ These contracts describe the lightweight account and wallet-readiness flow that 
 - `review_required` is especially important for withdrawal support since those funds remain reserved until manual review or payout completion
 - the current web admin surface proxies this endpoint through the same-origin route `/api/account/admin/support`
 - the current product review page for this flow is `/admin/support`
+
+### Current Account Overview Surface
+
+- the current web app now includes `/portfolio` as a signed-in account overview page
+- it is backed by the same same-origin session routes already used by the wallet sheet:
+  - `GET /api/account/me`
+  - `GET /api/account/transactions`
+  - `GET /api/account/kyc`
+  - `GET /api/account/portfolio/orders`
+- the page currently focuses on wallet balance, reserved funds, KYC status, recent money movement, and open-order exposure rather than full positions or P&L
+
+### Admin Withdrawal Review Rules
+
+- only withdrawals in `review_required` may be acted on from the admin support console
+- `decision=approved` initiates Daraja B2C and moves the withdrawal back to `pending` until callback completion
+- `decision=rejected` releases the reserved amount back to the user wallet and marks the withdrawal `failed`
+- both actions stamp `reviewed_at` and `reviewed_by_user_id` on the withdrawal record
+- reviewed support items now expose a compact audit trail with reviewer name, review timestamp, and decision
+- the current web support console also applies a client-side triage filter for `Needs review`, `Reviewed`, and `Failed` on top of the backend queue
+- the current web admin surface proxies this endpoint through `/api/account/admin/support/{withdrawalId}/review`
 
 ### M-Pesa Wallet Top-Up Endpoint
 

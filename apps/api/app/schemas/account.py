@@ -107,6 +107,57 @@ class WalletTransactionsResponse(BaseModel):
     items: list[WalletTransactionItemResponse]
 
 
+class PortfolioOrderItemResponse(BaseModel):
+    id: str
+    marketId: str
+    marketSlug: str | None = None
+    marketLabel: str
+    marketQuestion: str | None = None
+    side: str
+    direction: str
+    price: str
+    quantity: str
+    reservedAmountKes: str
+    status: str
+    createdAt: str
+
+
+class PortfolioExposureResponse(BaseModel):
+    openOrderCount: int
+    reservedOrderValueKes: str
+
+
+class PortfolioMarketExposureItemResponse(BaseModel):
+    marketId: str
+    marketSlug: str | None = None
+    marketLabel: str
+    marketQuestion: str | None = None
+    activeOrderCount: int
+    reservedAmountKes: str
+    totalQuantity: str
+    averageEntryPriceKes: str
+    latestYesPriceKes: str
+    latestNoPriceKes: str
+
+
+class PortfolioRecentPrintResponse(BaseModel):
+    marketId: str
+    marketSlug: str | None = None
+    marketLabel: str
+    side: str
+    priceKes: str
+    shares: str
+    timeLabel: str
+
+
+class PortfolioOrdersResponse(BaseModel):
+    account: AccountSnapshotResponse
+    exposure: PortfolioExposureResponse
+    items: list[PortfolioOrderItemResponse]
+    markets: list[PortfolioMarketExposureItemResponse]
+    recentPrints: list[PortfolioRecentPrintResponse]
+
+
 class KycProfileRequest(BaseModel):
     legalName: str = Field(min_length=4, max_length=120)
     nationalIdNumber: str = Field(min_length=6, max_length=32)
@@ -164,7 +215,15 @@ class AdminWalletSupportItemResponse(BaseModel):
     amountKes: str
     createdAt: str
     updatedAt: str
+    reviewedAt: str | None = None
+    reviewedByName: str | None = None
+    reviewDecision: str | None = None
 
 
 class AdminWalletSupportResponse(BaseModel):
     items: list[AdminWalletSupportItemResponse]
+
+
+class AdminWithdrawalReviewRequest(BaseModel):
+    decision: str = Field(pattern=r"^(approved|rejected)$")
+    note: str | None = Field(default=None, max_length=255)

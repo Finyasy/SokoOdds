@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title">
+  <title>Gor Mahia icon</title>
+  <path d="M48 10 76 22v22c0 19-12.7 33.3-28 41C32.7 77.3 20 63 20 44V22L48 10Z" fill="#0c7a43"/>
+  <path d="M48 18 68 27v17c0 13.8-8.8 24.9-20 31.2C36.8 68.9 28 57.8 28 44V27l20-9Z" fill="#f0fdf4"/>
+  <path d="M34 50h28" stroke="#0c7a43" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="48" cy="39" r="9" fill="#0c7a43"/>
+</svg>

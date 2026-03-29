@@ -1,9 +1,9 @@
 "use client";
-
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState, useTransition } from "react";
+import { HeaderUtilityMenu } from "@/components/layout/header-utility-menu";
+import { SokoOddsLogo } from "@/components/layout/sokoodds-logo";
 import { AccountAccessButton } from "@/components/onboarding/account-access-button";
 import {
   buildDiscoveryHref,
@@ -22,9 +22,6 @@ type SiteHeaderProps = {
   activeMarketFocus?: DiscoveryFocus;
   onSelectMarketCategory?: (value: DiscoveryCategory) => void;
 };
-
-const WHATSAPP_ALERTS_URL =
-  "https://wa.me/254700505050?text=Hi%20SokoOdds%2C%20send%20me%20market%20alerts%20on%20WhatsApp.";
 
 export function SiteHeader({
   searchValue,
@@ -103,13 +100,7 @@ export function SiteHeader({
   return (
     <header className="site-shell site-header">
       <div className="site-header__row">
-        <Link href="/" className="brand-mark">
-          <span className="brand-mark__badge">SO</span>
-          <span>
-            <strong>SokoOdds</strong>
-            <small>{formatHeaderContext()}</small>
-          </span>
-        </Link>
+        <SokoOddsLogo subtitle={formatHeaderContext()} />
 
         <form className="site-search" aria-label="Search markets" onSubmit={handleSearchSubmit}>
           <span className="site-search__icon">⌕</span>
@@ -133,15 +124,8 @@ export function SiteHeader({
         </form>
 
         <div className="site-header__actions">
-          <Link
-            href={WHATSAPP_ALERTS_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="ghost-button ghost-button--whatsapp"
-          >
-            WhatsApp
-          </Link>
           <AccountAccessButton />
+          <HeaderUtilityMenu />
         </div>
       </div>
 

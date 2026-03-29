@@ -13,6 +13,7 @@ import {
 } from "@/lib/market-discovery";
 import { MarketBoard } from "./market-board";
 import { MarketSignalStrip } from "./market-signal-strip";
+import { TrendingHeroCarousel } from "./trending-hero-carousel";
 
 type MarketDiscoveryShellProps = {
   title: string;
@@ -28,6 +29,12 @@ type MarketDiscoveryShellProps = {
   showSignalStrip?: boolean;
   signalStripTone?: "home" | "catalog";
   syncDiscoveryToUrl?: boolean;
+  showTrendingHero?: boolean;
+  heroMarkets?: Market[];
+  showMoreHref?: string;
+  showMoreLabel?: string;
+  showUrgentRail?: boolean;
+  showBoardOverview?: boolean;
 };
 
 export function MarketDiscoveryShell({
@@ -43,7 +50,13 @@ export function MarketDiscoveryShell({
   initialFocus = "all",
   showSignalStrip = false,
   signalStripTone = "home",
-  syncDiscoveryToUrl = false
+  syncDiscoveryToUrl = false,
+  showTrendingHero = false,
+  heroMarkets,
+  showMoreHref,
+  showMoreLabel,
+  showUrgentRail = true,
+  showBoardOverview = false
 }: MarketDiscoveryShellProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -108,6 +121,8 @@ export function MarketDiscoveryShell({
       />
 
       <main className="site-shell page-stack">
+        {showTrendingHero ? <TrendingHeroCarousel markets={heroMarkets ?? markets} /> : null}
+
         {showSignals ? (
           <MarketSignalStrip
             markets={markets}
@@ -150,6 +165,10 @@ export function MarketDiscoveryShell({
           footerText={footerText}
           footerHref={footerHref}
           footerLabel={footerLabel}
+          showMoreHref={showMoreHref}
+          showMoreLabel={showMoreLabel}
+          showUrgentRail={showUrgentRail}
+          showBoardOverview={showBoardOverview}
         />
       </main>
     </>
