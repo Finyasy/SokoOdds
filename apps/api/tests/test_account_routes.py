@@ -10,6 +10,7 @@ from decimal import Decimal
 from app.core.config import settings
 from app.main import app
 from app.models import User, UserSession, Wallet
+from app.schemas.account import FeedInteractionSyncRequest
 from app.services.account_access import (
     AuthenticatedAccount,
     get_account_access_service,
@@ -321,6 +322,58 @@ class FakeAccountService:
                         "timeLabel": "14:05",
                     }
                 ],
+            },
+        )()
+
+    async def get_feed_interactions(self, *, user_id: str):
+        assert user_id == "user-1"
+        return type(
+            "FeedInteractions",
+            (),
+            {
+                "items": [
+                    {
+                        "marketSlug": "cbk-cut-rate-before-september-end",
+                        "viewedCount": 2,
+                        "pausedCount": 1,
+                        "openedCount": 1,
+                        "lastInteractedAt": datetime.now(UTC).isoformat(),
+                    }
+                ]
+            },
+        )()
+
+    async def record_feed_interaction(self, *, user_id: str, market_slug: str, event_type: str):
+        assert user_id == "user-1"
+        return type(
+            "FeedInteractionItem",
+            (),
+            {
+                "marketSlug": market_slug,
+                "viewedCount": 1 if event_type == "view" else 0,
+                "pausedCount": 1 if event_type == "pause" else 0,
+                "openedCount": 1 if event_type == "open" else 0,
+                "lastInteractedAt": datetime.now(UTC).isoformat(),
+            },
+        )()
+
+    async def sync_feed_interactions(
+        self, *, user_id: str, payload: FeedInteractionSyncRequest
+    ):
+        assert user_id == "user-1"
+        return type(
+            "FeedInteractions",
+            (),
+            {
+                "items": [
+                    {
+                        "marketSlug": payload.items[0].marketSlug,
+                        "viewedCount": payload.items[0].viewedCount,
+                        "pausedCount": payload.items[0].pausedCount,
+                        "openedCount": payload.items[0].openedCount,
+                        "lastInteractedAt": payload.items[0].lastInteractedAt,
+                    }
+                ]
             },
         )()
 
@@ -823,6 +876,55 @@ def test_wallet_withdrawal_status_returns_current_shape() -> None:
     assert payload["status"] == "completed"
     assert payload["releasedAmountKes"] == "200.00"
     assert payload["account"]["wallet"]["availableBalanceKes"] == "305.00"
+
+
+def test_feed_interactions_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/feed/interactions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["marketSlug"] == "cbk-cut-rate-before-september-end"
+    assert payload["items"][0]["openedCount"] == 1
+
+
+def test_record_feed_interaction_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/feed/interactions",
+        json={"marketSlug": "cbk-cut-rate-before-september-end", "eventType": "open"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["marketSlug"] == "cbk-cut-rate-before-september-end"
+    assert payload["openedCount"] == 1
+
+
+def test_sync_feed_interactions_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/feed/interactions/sync",
+        json={
+            "items": [
+                {
+                    "marketSlug": "cbk-cut-rate-before-september-end",
+                    "viewedCount": 3,
+                    "pausedCount": 2,
+                    "openedCount": 1,
+                    "lastInteractedAt": datetime.now(UTC).isoformat(),
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["marketSlug"] == "cbk-cut-rate-before-september-end"
+    assert payload["items"][0]["viewedCount"] == 3
 
 
 def test_wallet_deposit_callback_rejects_invalid_token() -> None:

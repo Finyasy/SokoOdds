@@ -12,7 +12,21 @@ export const dynamic = "force-dynamic";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const contentType = request.headers.get("content-type") ?? "";
+  let body: Record<string, unknown>;
+  let redirectTo: string | null = null;
+
+  if (contentType.includes("application/json")) {
+    body = await request.json();
+  } else {
+    const formData = await request.formData();
+    body = {
+      firstName: String(formData.get("firstName") ?? ""),
+      phone: String(formData.get("phone") ?? "")
+    };
+    const candidateRedirect = String(formData.get("redirectTo") ?? "");
+    redirectTo = candidateRedirect.startsWith("/") ? candidateRedirect : null;
+  }
   const useSecureCookies = request.nextUrl.protocol === "https:";
 
   const apiResponse = await fetch(buildApiServerUrl("/auth/onboard"), {
@@ -47,12 +61,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const response = NextResponse.json(
-    {
-      account: typedPayload.account
-    },
-    { status: 200 }
-  );
+  const redirectBase =
+    request.headers.get("origin") ??
+    `${request.nextUrl.protocol}//${request.headers.get("host") ?? request.nextUrl.host}`;
+
+  const response = redirectTo
+    ? NextResponse.redirect(new URL(redirectTo, redirectBase), { status: 303 })
+    : NextResponse.json(
+        {
+          account: typedPayload.account
+        },
+        { status: 200 }
+      );
 
   response.cookies.set({
     name: SESSION_COOKIE_NAME,

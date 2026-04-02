@@ -67,13 +67,15 @@ Date: `2026-03-29`
   - `Will crude oil hit $100 by April 30?`
 - The app includes coordinated dark mode styling under `html[data-theme="dark"]`.
 - The mobile market page now includes a sticky trade bar that anchors to `#trade-ticket`.
+- Local web review should use `http://127.0.0.1:3000`, not `http://localhost:3000`, because the active Next dev server is now bound to `127.0.0.1` to avoid the host-specific hydration issues we hit during market-detail QA.
+- Core header/account flows were verified on `2026-03-29` with Playwright against `127.0.0.1:3000`, including category nav, sign-up/login entry, market-detail onboarding, wallet verification, top-up, and portfolio/cash navigation.
 
 ## Verification To Run After Node/ICU Is Fixed
 
 1. `npm run typecheck`
 2. `npm run lint` if available in the workspace
 3. `npm run build`
-4. Browser check:
+4. Browser check on `http://127.0.0.1:3000`:
    - `/`
    - `/markets`
    - one market detail route
@@ -89,4 +91,4 @@ Date: `2026-03-29`
 1. Replace more mock-only community data with API-backed market detail once backend endpoints exist.
 2. Add richer real-image market art for selected flagship contracts if editorial assets become available.
 3. Wire deposit, withdrawal, and cash history into a real wallet ledger surface rather than onboarding-only flows.
-4. Add full QA once the local Node environment is healthy again.
+4. Extend the broader route-regression coverage if new header or account destinations are added.

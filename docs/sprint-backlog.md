@@ -106,6 +106,7 @@ Current shipped behavior:
 - reviewed payout items on `/admin/support` now show a compact review trail so support can see who acted and when without dropping to the database
 - `/admin/support` now includes a small triage layer for `Needs review`, `Reviewed`, and `Failed`, so payout ops can narrow the queue quickly without turning the page into a heavy case-management surface
 - the web app now includes a first `/portfolio` surface, so signed-in users can review wallet cash, reserved funds, KYC status, recent money movement, and open-order exposure outside the market-sheet overlay
+- the web app now includes an account-aware `/cash` surface, so funding, withdrawals, wallet readiness, and recent ledger activity can be reviewed outside the onboarding sheet as well
 
 Still pending in later sprints:
 

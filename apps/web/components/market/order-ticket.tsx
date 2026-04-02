@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Market } from "@/lib/mock-data";
 import { formatKes } from "@/lib/mock-data";
+import {
+  fetchPortfolioOrders,
+  type PortfolioOrdersResponse
+} from "@/lib/account-client";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
-import { ProbabilityPill } from "./probability-pill";
 import { MarketIdentity } from "./market-identity";
 
 type OrderTicketProps = {
@@ -14,6 +17,10 @@ type OrderTicketProps = {
 export function OrderTicket({ market }: OrderTicketProps) {
   const {
     state,
+    watchlist,
+    recentMarketSlugs,
+    notificationPreferences,
+    feedInteractions,
     isSyncingAccount,
     openAccountSheet,
     openVerificationSheet,
@@ -24,9 +31,111 @@ export function OrderTicket({ market }: OrderTicketProps) {
   const [walletState, setWalletState] = useState<"idle" | "funding" | "funded">("idle");
   const [orderError, setOrderError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [portfolioSnapshot, setPortfolioSnapshot] = useState<PortfolioOrdersResponse | null>(null);
+  const activePortfolioSnapshot = state.isSignedIn ? portfolioSnapshot : null;
   const quantity = 8;
   const estimatedStake = quantity * market.yesPrice;
   const canTrade = state.isSignedIn && state.mpesaVerified && state.walletBalanceKes >= estimatedStake;
+  const isWatchlisted = watchlist.includes(market.slug);
+  const feedSignal = feedInteractions[market.slug];
+  const livePosition = useMemo(
+    () => activePortfolioSnapshot?.positions?.find((position) => position.marketId === market.id) ?? null,
+    [activePortfolioSnapshot, market.id]
+  );
+  const liveExposure = useMemo(
+    () => activePortfolioSnapshot?.markets?.find((item) => item.marketId === market.id) ?? null,
+    [activePortfolioSnapshot, market.id]
+  );
+
+  useEffect(() => {
+    if (!state.isSignedIn) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadPortfolioSnapshot() {
+      try {
+        const nextSnapshot = await fetchPortfolioOrders();
+        if (!cancelled) {
+          setPortfolioSnapshot(nextSnapshot);
+        }
+      } catch {
+        if (!cancelled) {
+          setPortfolioSnapshot(null);
+        }
+      }
+    }
+
+    void loadPortfolioSnapshot();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.isSignedIn, state.phone]);
+
+  const ticketContext = useMemo(() => {
+    const items: string[] = [];
+
+    if (livePosition) {
+      items.push(`Holding ${livePosition.side} ${livePosition.shares} shares`);
+    }
+    if (liveExposure) {
+      items.push(`${liveExposure.activeOrderCount} live orders here`);
+    }
+    if (feedSignal?.openedCount) {
+      items.push(`Opened ${feedSignal.openedCount}x from feed`);
+    }
+    if (feedSignal?.pausedCount) {
+      items.push(`Paused on ${feedSignal.pausedCount}x`);
+    }
+    if (isWatchlisted) {
+      items.push("Saved to watchlist");
+    }
+    if (recentMarketSlugs.includes(market.slug)) {
+      items.push("Recently viewed");
+    }
+    if (notificationPreferences.priceMoves) {
+      items.push("Price alerts on");
+    }
+
+    return items.slice(0, 4);
+  }, [
+    feedSignal,
+    isWatchlisted,
+    liveExposure,
+    livePosition,
+    market.slug,
+    notificationPreferences.priceMoves,
+    recentMarketSlugs
+  ]);
+  const hasLivePosition = Boolean(livePosition);
+  const hasLiveExposure = Boolean(liveExposure);
+  const ticketIntentLabel = hasLivePosition
+    ? `Add to your ${livePosition?.side ?? "YES"} position`
+    : hasLiveExposure
+      ? "Layer into your live orders"
+      : "Start a position";
+  const summaryLabel = hasLivePosition
+    ? "Position after order"
+    : hasLiveExposure
+      ? "Reserved after order"
+      : "Starting exposure";
+  const summaryValue = hasLivePosition
+    ? `${livePosition?.side ?? "YES"} ${(Number(livePosition?.shares ?? "0") + quantity).toFixed(2)} shares`
+    : hasLiveExposure
+      ? formatKes(Number(liveExposure?.reservedAmountKes ?? "0") + estimatedStake)
+      : `${quantity} YES shares`;
+  const outcomeLabel = hasLivePosition
+    ? "Blended market value"
+    : hasLiveExposure
+      ? "Reserved after order"
+      : "Estimated payout";
+  const outcomeValue = hasLivePosition
+    ? formatKes(Number(livePosition?.marketValueKes ?? "0") + estimatedStake)
+    : hasLiveExposure
+      ? formatKes(Number(liveExposure?.reservedAmountKes ?? "0") + estimatedStake)
+      : formatKes(quantity);
 
   const actionLabel = isSyncingAccount
     ? "Checking wallet"
@@ -41,10 +150,16 @@ export function OrderTicket({ market }: OrderTicketProps) {
               ? "Wallet topped up"
               : "Add KES 500 via M-Pesa"
         : orderState === "submitted"
-          ? "First trade submitted"
+          ? hasLivePosition || hasLiveExposure
+            ? "Position extended"
+            : "First trade submitted"
         : orderState === "submitting"
           ? "Submitting order..."
-          : `Buy ${quantity} YES shares`;
+          : hasLivePosition
+            ? `Add ${quantity} YES shares`
+            : hasLiveExposure
+              ? `Add ${quantity} YES shares`
+              : `Buy ${quantity} YES shares`;
 
   const helperCopy = isSyncingAccount
     ? "We are loading the latest wallet state before the first trade action appears."
@@ -52,11 +167,19 @@ export function OrderTicket({ market }: OrderTicketProps) {
       ? "Sign in first so your alerts, wallet state, and market activity can stay tied to one account."
       : !state.mpesaVerified
         ? "First-time users verify one M-Pesa number with a KES 5 prompt. That amount is added back to the wallet."
-        : !canTrade
+      : !canTrade
           ? "Your verified wallet can trigger a small M-Pesa top-up here instead of stopping the trade flow."
         : orderState === "submitted"
-          ? "Funds moved from available balance into reserved balance. The execution event will fan out as the engine comes online."
-          : "Your wallet is ready. This first order goes through the live API so you can review the real reserve-funds behavior.";
+          ? hasLivePosition
+            ? "Funds moved into this market again, increasing your live position while execution updates continue to settle in."
+            : hasLiveExposure
+              ? "This market now has more reserved order exposure. Matching and fill updates will keep rolling into the portfolio state."
+              : "Funds moved from available balance into reserved balance. The execution event will fan out as the engine comes online."
+          : hasLivePosition
+            ? `You already hold ${livePosition?.side ?? "YES"} here, so this order is framed as adding to an existing position.`
+            : hasLiveExposure
+              ? `You already have ${liveExposure?.activeOrderCount ?? 0} live orders here, so this order layers into that exposure instead of starting fresh.`
+              : "Your wallet is ready. This first order goes through the live API so you can review the real reserve-funds behavior.";
 
   async function handlePrimaryAction() {
     if (isSyncingAccount) {
@@ -100,6 +223,12 @@ export function OrderTicket({ market }: OrderTicketProps) {
       setLastOrderId(result.orderId);
       setOrderState("submitted");
       setWalletState("idle");
+      try {
+        const nextSnapshot = await fetchPortfolioOrders();
+        setPortfolioSnapshot(nextSnapshot);
+      } catch {
+        // Leave the existing snapshot in place if the refresh misses.
+      }
     } catch (error) {
       setOrderState("idle");
       setOrderError(error instanceof Error ? error.message : "Could not submit this order.");
@@ -113,6 +242,7 @@ export function OrderTicket({ market }: OrderTicketProps) {
         <div className="order-ticket__market-copy">
           <span className="market-chip">Order ticket</span>
           <strong>{market.shortLabel}</strong>
+          <span className="order-ticket__intent">{ticketIntentLabel}</span>
         </div>
       </div>
 
@@ -126,9 +256,23 @@ export function OrderTicket({ market }: OrderTicketProps) {
         <span className="order-ticket__mode-label">Market</span>
       </div>
 
-      <div className="order-ticket__choice">
-        <ProbabilityPill label="YES" value={market.yesPrice} />
-        <ProbabilityPill label="NO" value={market.noPrice} tone="no" />
+      <div className="order-ticket__choice" role="tablist" aria-label="Contract side">
+        <button
+          type="button"
+          className="order-ticket__choice-card order-ticket__choice-card--yes order-ticket__choice-card--active"
+          aria-pressed="true"
+        >
+          <span>Yes</span>
+          <strong>{Math.round(market.yesPrice * 100)}c</strong>
+        </button>
+        <button
+          type="button"
+          className="order-ticket__choice-card order-ticket__choice-card--no"
+          aria-pressed="false"
+        >
+          <span>No</span>
+          <strong>{Math.round(market.noPrice * 100)}c</strong>
+        </button>
       </div>
 
       <div className="order-ticket__amount-stage" aria-label="Order amount snapshot">
@@ -136,45 +280,47 @@ export function OrderTicket({ market }: OrderTicketProps) {
         <strong>{formatKes(estimatedStake)}</strong>
       </div>
 
+      {ticketContext.length ? (
+        <div className="order-ticket__context">
+          <span className="order-ticket__context-label">Why this still matters</span>
+          <div className="order-ticket__context-chips">
+            {ticketContext.map((item) => (
+              <span key={item} className="order-ticket__context-chip">
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="order-ticket__quick-amounts" aria-label="Quick funding amounts">
+        <button type="button" className="order-ticket__quick-chip">
+          +Ksh 100
+        </button>
+        <button type="button" className="order-ticket__quick-chip">
+          +Ksh 250
+        </button>
+        <button type="button" className="order-ticket__quick-chip">
+          +Ksh 500
+        </button>
+        <button type="button" className="order-ticket__quick-chip">
+          Max
+        </button>
+      </div>
+
       <div className="ticket-balance-strip">
         <div>
-          <span>Available balance</span>
+          <span>Available</span>
           <strong data-testid="order-ticket-available-balance">
             {formatKes(state.walletBalanceKes)}
           </strong>
         </div>
         <div>
-          <span>Reserved funds</span>
+          <span>Reserved</span>
           <strong data-testid="order-ticket-reserved-balance">
             {formatKes(state.reservedBalanceKes)}
           </strong>
         </div>
-      </div>
-
-      <div className="order-ticket__form">
-        <label>
-          Price per share
-          <div className="input-shell">{Math.round(market.yesPrice * 100)} KES</div>
-        </label>
-        <label>
-          Shares
-          <div className="input-shell">{quantity}</div>
-        </label>
-      </div>
-
-      <div className="order-ticket__quick-amounts" aria-label="Quick funding amounts">
-        <button type="button" className="order-ticket__quick-chip">
-          +{formatKes(100)}
-        </button>
-        <button type="button" className="order-ticket__quick-chip">
-          +{formatKes(250)}
-        </button>
-        <button type="button" className="order-ticket__quick-chip">
-          +{formatKes(500)}
-        </button>
-        <button type="button" className="order-ticket__quick-chip">
-          Max
-        </button>
       </div>
 
       <div className="wallet-callout">
@@ -210,12 +356,16 @@ export function OrderTicket({ market }: OrderTicketProps) {
 
       <div className="ticket-summary-grid">
         <div>
+          <span>{summaryLabel}</span>
+          <strong>{summaryValue}</strong>
+        </div>
+        <div>
           <span>Cost</span>
           <strong>{formatKes(estimatedStake)}</strong>
         </div>
         <div>
-          <span>Estimated payout</span>
-          <strong>{formatKes(quantity)}</strong>
+          <span>{outcomeLabel}</span>
+          <strong>{outcomeValue}</strong>
         </div>
       </div>
 

@@ -1,9 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
+import {
+  fetchPortfolioOrders,
+  type PortfolioOrdersResponse
+} from "@/lib/account-client";
 import type { Market } from "@/lib/mock-data";
 import {
+  formatClosingLabel,
   formatPercent,
   formatKes,
   getMarketActivity,
@@ -71,17 +77,211 @@ export function MarketDetailExperience({
   market,
   relatedMarkets
 }: MarketDetailExperienceProps) {
+  const {
+    state,
+    watchlist,
+    recentMarketSlugs,
+    feedInteractions,
+    toggleWatchlist,
+    notificationPreferences,
+    updateNotificationPreference,
+    recordMarketVisit
+  } = useOnboarding();
   const [detailTab, setDetailTab] = useState<DetailTab>("rules");
   const [socialTab, setSocialTab] = useState<SocialTab>("comments");
   const [isOrderBookOpen, setIsOrderBookOpen] = useState(false);
+  const [portfolioSnapshot, setPortfolioSnapshot] = useState<PortfolioOrdersResponse | null>(null);
+  const activePortfolioSnapshot = state.isSignedIn ? portfolioSnapshot : null;
   const comments = useMemo(() => getMarketComments(market), [market]);
   const topHolders = useMemo(() => getMarketTopHolders(market), [market]);
   const activity = useMemo(() => getMarketActivity(market), [market]);
   const contextCards = useMemo(() => getMarketContextCards(market), [market]);
+  const isWatchlisted = watchlist.includes(market.slug);
+  const livePosition = useMemo(
+    () => activePortfolioSnapshot?.positions.find((position) => position.marketId === market.id) ?? null,
+    [activePortfolioSnapshot, market.id]
+  );
+  const liveExposure = useMemo(
+    () => activePortfolioSnapshot?.markets.find((item) => item.marketId === market.id) ?? null,
+    [activePortfolioSnapshot, market.id]
+  );
+  const relatedMarketSignals = useMemo(
+    () =>
+      relatedMarkets.map((relatedMarket) => {
+        const relatedPosition =
+          activePortfolioSnapshot?.positions.find((position) => position.marketId === relatedMarket.id) ?? null;
+        const relatedExposure =
+          activePortfolioSnapshot?.markets.find((item) => item.marketId === relatedMarket.id) ?? null;
+        const isRelatedWatchlisted = watchlist.includes(relatedMarket.slug);
+
+        return {
+          market: relatedMarket,
+          signalLabel: relatedPosition
+            ? `${relatedPosition.side} live`
+            : relatedExposure
+              ? `${relatedExposure.activeOrderCount} orders live`
+              : isRelatedWatchlisted
+                ? "Saved"
+                : null,
+          signalDetail: relatedPosition
+            ? `${relatedPosition.shares} shares · Ksh ${relatedPosition.marketValueKes}`
+            : relatedExposure
+              ? `Ksh ${relatedExposure.reservedAmountKes} reserved`
+              : isRelatedWatchlisted
+                ? "On your watchlist"
+                : `${formatKes(relatedMarket.volumeKes)} vol.`,
+        };
+      }),
+    [activePortfolioSnapshot, relatedMarkets, watchlist]
+  );
+  const activityFeed = useMemo(
+    () =>
+      market.trades.slice(0, 3).map((trade) => ({
+        id: `print-${trade.id}`,
+        label: `${trade.side} filled`,
+        detail: `${trade.shares} shares at ${trade.price.toFixed(2)} KES`,
+        timeLabel: trade.time
+      })),
+    [market]
+  );
+  const feedSignal = feedInteractions[market.slug];
+  const surfacedReasons = useMemo(() => {
+    const items: Array<{ label: string; detail: string }> = [];
+
+    if (livePosition) {
+      items.push({
+        label: `Holding ${livePosition.side} ${livePosition.shares} shares`,
+        detail: "You already have live exposure here, so the market stays close for position review."
+      });
+    } else if (liveExposure) {
+      items.push({
+        label: `${liveExposure.activeOrderCount} live orders here`,
+        detail: "Open orders keep this market elevated until you get a clearer outcome."
+      });
+    }
+
+    if (feedSignal?.openedCount) {
+      items.push({
+        label: `Opened ${feedSignal.openedCount}x from feed`,
+        detail: "This market keeps earning a closer look from your discovery flow."
+      });
+    }
+
+    if (feedSignal?.pausedCount) {
+      items.push({
+        label: `Paused on ${feedSignal.pausedCount}x`,
+        detail: "You lingered here longer than usual, so it ranks as a stronger signal."
+      });
+    }
+
+    if (recentMarketSlugs.includes(market.slug)) {
+      items.push({
+        label: "Part of your recent run",
+        detail: "You viewed this recently, so it stays near the top while the story is moving."
+      });
+    }
+
+    if (isWatchlisted) {
+      items.push({
+        label: "Saved to watchlist",
+        detail: "Watchlisted markets stay surfaced so you can re-enter quickly."
+      });
+    }
+
+    if (notificationPreferences.priceMoves) {
+      items.push({
+        label: "Price alerts enabled",
+        detail: "This market is connected to your alert preferences for move-based follow-up."
+      });
+    }
+
+    if (!items.length) {
+      items.push({
+        label: "High fit for your board",
+        detail: "It is trending near your categories and momentum signals right now."
+      });
+    }
+
+    return items.slice(0, 4);
+  }, [
+    feedSignal,
+    isWatchlisted,
+    liveExposure,
+    livePosition,
+    market.slug,
+    notificationPreferences.priceMoves,
+    recentMarketSlugs
+  ]);
+  const communityStats = [
+    { label: "Comments", value: String(comments.length) },
+    { label: "Top holders", value: String(topHolders.length) },
+    { label: "Watchers", value: `${comments.length * 9 + 14}` },
+    { label: "Recent prints", value: String(market.trades.length) }
+  ];
+  const handleRecordMarketVisit = useEffectEvent((marketSlug: string) => {
+    recordMarketVisit(marketSlug);
+  });
+
+  useEffect(() => {
+    handleRecordMarketVisit(market.slug);
+  }, [market.slug]);
+
+  useEffect(() => {
+    if (!state.isSignedIn) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadPortfolioSnapshot() {
+      try {
+        const nextSnapshot = await fetchPortfolioOrders();
+        if (!cancelled) {
+          setPortfolioSnapshot(nextSnapshot);
+        }
+      } catch {
+        if (!cancelled) {
+          setPortfolioSnapshot(null);
+        }
+      }
+    }
+
+    void loadPortfolioSnapshot();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.isSignedIn, state.phone]);
 
   return (
     <section className="market-detail-layout">
       <div className="market-detail-layout__main">
+        <section className="market-section-card market-section-card--watch-actions">
+          <div className="market-section-card__head">
+            <div>
+              <span className="section-kicker">Keep this close</span>
+              <h3>Watch and continue later</h3>
+            </div>
+            <div className="market-detail-actions">
+              <button
+                type="button"
+                className={isWatchlisted ? "primary-button" : "ghost-button"}
+                onClick={() => toggleWatchlist(market.slug)}
+              >
+                {isWatchlisted ? "Saved to watchlist" : "Save to watchlist"}
+              </button>
+              <label className="market-detail-alert-toggle">
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.priceMoves}
+                  onChange={(event) => updateNotificationPreference("priceMoves", event.target.checked)}
+                />
+                <span>Price alerts</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
         <section className="market-section-card market-section-card--accordion">
           <button
             type="button"
@@ -139,6 +339,14 @@ export function MarketDetailExperience({
                 condition before the deadline. Otherwise it resolves <strong>NO</strong>. Drafts,
                 rumors, and unofficial screenshots do not count.
               </p>
+              <div className="market-rule-list">
+                {market.ruleHighlights.map((item) => (
+                  <div key={item} className="market-rule-list__item">
+                    <span className="market-rule-list__bullet" aria-hidden="true" />
+                    <p>{item}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="market-context-stack">
@@ -155,6 +363,30 @@ export function MarketDetailExperience({
                   <span>Always visible</span>
                 </div>
                 <p>Resolution source: {market.resolutionSource}</p>
+              </article>
+              <article className="context-card">
+                <div className="context-card__head">
+                  <strong>Market pulse</strong>
+                  <span>What matters now</span>
+                </div>
+                <div className="market-pulse-grid">
+                  <div>
+                    <span>YES</span>
+                    <strong>{formatPercent(market.yesPrice)}</strong>
+                  </div>
+                  <div>
+                    <span>NO</span>
+                    <strong>{formatPercent(market.noPrice)}</strong>
+                  </div>
+                  <div>
+                    <span>Volume</span>
+                    <strong>{formatKes(market.volumeKes)}</strong>
+                  </div>
+                  <div>
+                    <span>Liquidity</span>
+                    <strong>{formatKes(market.liquidityKes)}</strong>
+                  </div>
+                </div>
               </article>
             </div>
           )}
@@ -199,6 +431,11 @@ export function MarketDetailExperience({
                 <button type="button" className="primary-button">
                   Post
                 </button>
+              </div>
+              <div className="comment-toolbar" aria-hidden="true">
+                <span className="comment-toolbar__filter comment-toolbar__filter--active">Newest</span>
+                <span className="comment-toolbar__filter">Holders</span>
+                <span className="comment-toolbar__notice">External links are reviewed before posting.</span>
               </div>
               <div className="comment-list">
                 {comments.map((comment) => (
@@ -246,22 +483,56 @@ export function MarketDetailExperience({
             <div className="data-list">
               <div className="data-list__row">
                 <div>
-                  <strong>Your sample position</strong>
-                  <span>YES 120 shares</span>
+                  <strong>Your position</strong>
+                  <span>
+                    {livePosition
+                      ? `${livePosition.side} ${livePosition.shares} shares live`
+                      : "No live position yet"}
+                  </span>
                 </div>
                 <div>
-                  <strong>{formatKes(7440)}</strong>
+                  <strong>{livePosition ? `Ksh ${livePosition.marketValueKes}` : formatKes(0)}</strong>
                   <span>Mark value</span>
                 </div>
               </div>
               <div className="data-list__row">
                 <div>
                   <strong>Available balance</strong>
-                  <span>{formatKes(0)}</span>
+                  <span>{formatKes(state.walletBalanceKes)}</span>
                 </div>
                 <div>
-                  <strong className="positive-text">+{formatKes(120)}</strong>
+                  <strong
+                    className={
+                      livePosition
+                        ? livePosition.unrealizedPnlKes.startsWith("-")
+                          ? "negative-text"
+                          : "positive-text"
+                        : undefined
+                    }
+                  >
+                    {livePosition
+                      ? `${livePosition.unrealizedPnlKes.startsWith("-") ? "" : "+"}Ksh ${livePosition.unrealizedPnlKes}`
+                      : formatKes(0)}
+                  </strong>
                   <span>Unrealized P&amp;L</span>
+                </div>
+              </div>
+              <div className="data-list__row">
+                <div>
+                  <strong>{liveExposure ? "Live orders" : "Reserved funds"}</strong>
+                  <span>
+                    {liveExposure
+                      ? `${liveExposure.activeOrderCount} orders · Ksh ${liveExposure.reservedAmountKes}`
+                      : formatKes(state.reservedBalanceKes)}
+                  </span>
+                </div>
+                <div>
+                  <strong>
+                    {livePosition
+                      ? `Ksh ${livePosition.averageEntryPriceKes}`
+                      : formatClosingLabel(market.closesAt)}
+                  </strong>
+                  <span>{livePosition ? "Avg entry" : "Market close"}</span>
                 </div>
               </div>
             </div>
@@ -269,6 +540,20 @@ export function MarketDetailExperience({
 
           {socialTab === "activity" ? (
             <div className="data-list">
+              {activityFeed.map((item) => (
+                <div key={item.id} className="data-list__row">
+                  <div className="data-list__identity-block">
+                    <MiniIdentity label={item.label} />
+                    <div>
+                      <strong>{item.label}</strong>
+                      <span>{item.detail}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <span>{item.timeLabel}</span>
+                  </div>
+                </div>
+              ))}
               {activity.map((item) => (
                 <div key={item.id} className="data-list__row">
                   <div className="data-list__identity-block">
@@ -289,6 +574,58 @@ export function MarketDetailExperience({
       </div>
 
       <aside className="market-detail-layout__aside">
+        <section className="panel panel--compact">
+          <div className="panel__header">
+            <span className="market-chip">Community</span>
+            <strong>Market pulse</strong>
+          </div>
+          <div className="market-pulse-grid market-pulse-grid--aside">
+            {communityStats.map((stat) => (
+              <div key={stat.label}>
+                <span>{stat.label}</span>
+                <strong>{stat.value}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="market-signal-list">
+            <div className="market-signal-list__item">
+              <span>Sentiment</span>
+              <strong>{market.yesPrice >= 0.5 ? "Leaning YES" : "Leaning NO"}</strong>
+            </div>
+            <div className="market-signal-list__item">
+              <span>Last print</span>
+              <strong>{market.trades[0]?.time ?? "Live"}</strong>
+            </div>
+            <div className="market-signal-list__item">
+              <span>Resolution</span>
+              <strong>{formatClosingLabel(market.closesAt)}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel panel--compact">
+          <div className="panel__header">
+            <span className="market-chip">For you</span>
+            <strong>Why this surfaced</strong>
+          </div>
+          <div className="market-personalization-list">
+            {surfacedReasons.map((item) => (
+              <article key={item.label} className="market-personalization-item">
+                <strong>{item.label}</strong>
+                <span>{item.detail}</span>
+              </article>
+            ))}
+          </div>
+          <div className="market-personalization-actions">
+            <Link href="/portfolio" className="ghost-button">
+              View portfolio signals
+            </Link>
+            <Link href="/markets" className="primary-button">
+              Keep browsing
+            </Link>
+          </div>
+        </section>
+
         <section className="panel">
           <div className="panel__header">
             <span className="market-chip">Wallet</span>
@@ -331,7 +668,7 @@ export function MarketDetailExperience({
             <strong>More to watch</strong>
           </div>
           <div className="related-market-list">
-            {relatedMarkets.map((relatedMarket) => (
+            {relatedMarketSignals.map(({ market: relatedMarket, signalLabel, signalDetail }) => (
               <Link
                 key={relatedMarket.slug}
                 href={`/markets/${relatedMarket.slug}`}
@@ -348,7 +685,10 @@ export function MarketDetailExperience({
                 </div>
                 <div className="related-market-item__meta">
                   <strong>{formatPercent(relatedMarket.yesPrice)}</strong>
-                  <span>YES</span>
+                  {signalLabel ? (
+                    <span className="related-market-item__signal">{signalLabel}</span>
+                  ) : null}
+                  <span>{signalDetail}</span>
                 </div>
               </Link>
             ))}

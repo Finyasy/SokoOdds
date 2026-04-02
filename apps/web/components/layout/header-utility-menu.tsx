@@ -30,15 +30,20 @@ type MenuAction = {
 export function HeaderUtilityMenu() {
   const { state, openAccountSheet, openVerificationSheet } = useOnboarding();
   const [isOpen, setIsOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.localStorage.getItem("sokoodds.theme") === "dark";
+  });
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("sokoodds.theme");
-    const nextIsDark = stored === "dark";
-    setIsDarkMode(nextIsDark);
-    document.documentElement.dataset.theme = nextIsDark ? "dark" : "light";
-  }, []);
+    const theme = isDarkMode ? "dark" : "light";
+    window.localStorage.setItem("sokoodds.theme", theme);
+    document.documentElement.dataset.theme = theme;
+  }, [isDarkMode]);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -77,10 +82,7 @@ export function HeaderUtilityMenu() {
     setIsOpen(false);
 
     if (label === "Dark mode") {
-      const nextIsDark = !isDarkMode;
-      setIsDarkMode(nextIsDark);
-      window.localStorage.setItem("sokoodds.theme", nextIsDark ? "dark" : "light");
-      document.documentElement.dataset.theme = nextIsDark ? "dark" : "light";
+      setIsDarkMode((current) => !current);
       return;
     }
 
@@ -95,18 +97,21 @@ export function HeaderUtilityMenu() {
 
   return (
     <div className={`header-menu${isOpen ? " header-menu--open" : ""}`} ref={menuRef}>
-      <button
-        type="button"
+      <Link
+        href="/account"
         className="header-menu__trigger"
         aria-expanded={isOpen}
         aria-haspopup="menu"
         aria-label="Open account and product menu"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={(event) => {
+          event.preventDefault();
+          setIsOpen((current) => !current);
+        }}
       >
         <SokoOddsBadge className="header-menu__avatar" alt="SokoOdds menu avatar" />
         <ChevronDownIcon />
         <MenuIcon />
-      </button>
+      </Link>
 
       {isOpen ? (
         <div className="header-menu__panel" role="menu">

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { Market } from "@/lib/mock-data";
 
 type MarketIdentityProps = {
@@ -95,11 +96,13 @@ export function MarketIdentity({ market, size = "md" }: MarketIdentityProps) {
         }}
       >
         {identity.primaryImagePath ? (
-          <img
+          <Image
             src={identity.primaryImagePath}
             alt=""
             className="market-identity__image"
             aria-hidden="true"
+            fill
+            sizes={size === "lg" ? "60px" : size === "sm" ? "40px" : "46px"}
           />
         ) : (
           identity.primary
@@ -116,11 +119,13 @@ export function MarketIdentity({ market, size = "md" }: MarketIdentityProps) {
           }}
         >
           {identity.secondaryImagePath ? (
-            <img
+            <Image
               src={identity.secondaryImagePath}
               alt=""
               className="market-identity__image"
               aria-hidden="true"
+              fill
+              sizes={size === "lg" ? "60px" : size === "sm" ? "40px" : "46px"}
             />
           ) : (
             identity.secondary

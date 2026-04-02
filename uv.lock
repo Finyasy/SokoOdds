@@ -840,15 +840,21 @@ version = "0.1.0"
 source = { editable = "apps/worker" }
 dependencies = [
     { name = "celery" },
+    { name = "greenlet" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
     { name = "redis" },
+    { name = "sqlalchemy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "celery" },
+    { name = "greenlet" },
+    { name = "psycopg", extras = ["binary"] },
     { name = "pydantic-settings" },
     { name = "redis" },
+    { name = "sqlalchemy" },
 ]
 
 [[package]]

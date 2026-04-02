@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import {
@@ -10,7 +11,7 @@ import {
   type PortfolioOrdersResponse,
   type WalletTransactionItem,
 } from "@/lib/account-client";
-import { formatKes } from "@/lib/mock-data";
+import { formatKes, getMarketBySlug } from "@/lib/mock-data";
 
 function formatDateLabel(value: string) {
   return new Intl.DateTimeFormat("en-KE", {
@@ -34,6 +35,36 @@ function formatKycTone(status: string) {
   return "quiet";
 }
 
+function formatFeedSignalSummary(input: {
+  viewedCount: number;
+  pausedCount: number;
+  openedCount: number;
+}) {
+  const parts: string[] = [];
+
+  if (input.openedCount > 0) {
+    parts.push(`opened ${input.openedCount}x`);
+  }
+  if (input.pausedCount > 0) {
+    parts.push(`paused ${input.pausedCount}x`);
+  }
+  if (input.viewedCount > 0) {
+    parts.push(`viewed ${input.viewedCount}x`);
+  }
+
+  return parts.join(" · ");
+}
+
+function formatAlertTone(priority: number) {
+  if (priority >= 170) {
+    return "high";
+  }
+  if (priority >= 100) {
+    return "medium";
+  }
+  return "low";
+}
+
 type PortfolioSnapshot = {
   items: WalletTransactionItem[];
   kyc: KycSubmissionResponse | null;
@@ -43,6 +74,7 @@ type PortfolioSnapshot = {
 export function PortfolioExperience() {
   const {
     state,
+    feedInteractions,
     isHydrated,
     isSyncingAccount,
     openAccountSheet,
@@ -108,6 +140,153 @@ export function PortfolioExperience() {
   }, [state.isSignedIn, state.phone]);
 
   const latestActivity = useMemo(() => snapshot.items.slice(0, 8), [snapshot.items]);
+  const orderItems = useMemo(() => snapshot.orders?.items ?? [], [snapshot.orders]);
+  const positions = useMemo(() => snapshot.orders?.positions ?? [], [snapshot.orders]);
+  const marketExposure = useMemo(() => snapshot.orders?.markets ?? [], [snapshot.orders]);
+  const recentFills = useMemo(() => snapshot.orders?.fills ?? [], [snapshot.orders]);
+  const recentPrints = useMemo(() => snapshot.orders?.recentPrints ?? [], [snapshot.orders]);
+  const topFeedSignals = useMemo(() => {
+    const marketLabels = new Map<string, { label: string; detail: string }>();
+
+    [...positions, ...marketExposure, ...orderItems].forEach((item) => {
+      if (item.marketSlug) {
+        marketLabels.set(item.marketSlug, {
+          label: item.marketLabel,
+          detail: item.marketQuestion ?? item.marketLabel,
+        });
+      }
+    });
+
+    return Object.entries(feedInteractions)
+      .map(([marketSlug, interaction]) => {
+        const persisted = marketLabels.get(marketSlug);
+        const fallbackMarket = getMarketBySlug(marketSlug);
+        const signalScore =
+          interaction.openedCount * 90 + interaction.pausedCount * 45 + interaction.viewedCount * 18;
+        const exposureMatch = marketExposure.find((market) => market.marketSlug === marketSlug);
+        const positionMatch = positions.find((position) => position.marketSlug === marketSlug);
+
+        return {
+          marketSlug,
+          label: persisted?.label ?? fallbackMarket?.shortLabel ?? marketSlug.replace(/-/g, " "),
+          detail:
+            persisted?.detail ??
+            fallbackMarket?.question ??
+            "Durable feed signal imported from your discovery behavior.",
+          summary: formatFeedSignalSummary(interaction),
+          lastInteractedAt: interaction.lastInteractedAt,
+          signalScore,
+          statusLabel: positionMatch
+            ? `${positionMatch.side} position live`
+            : exposureMatch
+              ? `${exposureMatch.activeOrderCount} live orders`
+              : "Watching from feed",
+          actionHref: `/markets/${marketSlug}`,
+          actionLabel: positionMatch
+            ? "Open position market"
+            : exposureMatch
+              ? "Open order market"
+              : "Open market",
+          secondaryHref: positionMatch
+            ? "/portfolio#portfolio-positions"
+            : exposureMatch
+              ? "/portfolio#portfolio-open-orders"
+              : "/markets",
+          secondaryLabel: positionMatch
+            ? "View positions"
+            : exposureMatch
+              ? "View orders"
+              : "Browse more",
+        };
+      })
+      .sort((left, right) => right.signalScore - left.signalScore)
+      .slice(0, 4);
+  }, [feedInteractions, marketExposure, orderItems, positions]);
+  const portfolioAlerts = useMemo(() => {
+    return Object.entries(feedInteractions)
+      .map(([marketSlug, interaction]) => {
+        const positionMatch = positions.find((position) => position.marketSlug === marketSlug);
+        const exposureMatch = marketExposure.find((market) => market.marketSlug === marketSlug);
+        const latestPrint = recentPrints.find((printItem) => printItem.marketSlug === marketSlug);
+        const fallbackMarket = getMarketBySlug(marketSlug);
+        const label =
+          positionMatch?.marketLabel ??
+          exposureMatch?.marketLabel ??
+          latestPrint?.marketLabel ??
+          fallbackMarket?.shortLabel ??
+          marketSlug.replace(/-/g, " ");
+        const signalSummary = formatFeedSignalSummary(interaction);
+        const detail =
+          positionMatch
+            ? `${positionMatch.side} ${positionMatch.shares} shares live · P&L ${positionMatch.unrealizedPnlKes.startsWith("-") ? "" : "+"}${positionMatch.unrealizedPnlKes}`
+            : exposureMatch
+              ? `${exposureMatch.activeOrderCount} live orders · reserved Ksh ${exposureMatch.reservedAmountKes}`
+              : latestPrint
+                ? `${latestPrint.side} trading at Ksh ${latestPrint.priceKes} · ${latestPrint.timeLabel}`
+                : "Strong repeat interest from your feed behavior.";
+
+        if (positionMatch) {
+          return {
+            marketSlug,
+            label,
+            detail,
+            message: `You keep revisiting this market and already hold a live ${positionMatch.side} position.`,
+            actionLabel: "Review position",
+            actionHref: positionMatch.marketSlug
+              ? `/markets/${positionMatch.marketSlug}`
+              : "/portfolio#portfolio-positions",
+            secondaryHref: "/portfolio#portfolio-positions",
+            secondaryLabel: "Jump to positions",
+            signalSummary,
+            lastInteractedAt: interaction.lastInteractedAt,
+            priority: interaction.openedCount * 95 + interaction.pausedCount * 40 + 40,
+          };
+        }
+
+        if (exposureMatch) {
+          return {
+            marketSlug,
+            label,
+            detail,
+            message: `This market still has live order exposure and keeps pulling you back from the feed.`,
+            actionLabel: "Check orders",
+            actionHref: exposureMatch.marketSlug
+              ? `/markets/${exposureMatch.marketSlug}`
+              : "/portfolio#portfolio-open-orders",
+            secondaryHref: "/portfolio#portfolio-open-orders",
+            secondaryLabel: "Jump to open orders",
+            signalSummary,
+            lastInteractedAt: interaction.lastInteractedAt,
+            priority: interaction.openedCount * 85 + interaction.pausedCount * 45 + 28,
+          };
+        }
+
+        if (interaction.openedCount >= 2 || interaction.pausedCount >= 2) {
+          return {
+            marketSlug,
+            label,
+            detail,
+            message: "High curiosity with no exposure yet. Worth a fresh read before the next move.",
+            actionLabel: "Revisit market",
+            actionHref: `/markets/${marketSlug}`,
+            secondaryHref: "/markets",
+            secondaryLabel: "Browse all markets",
+            signalSummary,
+            lastInteractedAt: interaction.lastInteractedAt,
+            priority: interaction.openedCount * 70 + interaction.pausedCount * 38 + interaction.viewedCount * 12,
+          };
+        }
+
+        return null;
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((left, right) => right.priority - left.priority)
+      .slice(0, 3)
+      .map((item) => ({
+        ...item,
+        tone: formatAlertTone(item.priority),
+      }));
+  }, [feedInteractions, marketExposure, positions, recentPrints]);
 
   if (!isHydrated || isSyncingAccount) {
     return (
@@ -124,7 +303,10 @@ export function PortfolioExperience() {
 
   if (!state.isSignedIn) {
     return (
-      <section className="portfolio-shell" data-testid="portfolio-signin-required">
+      <section
+        className="portfolio-shell portfolio-shell--signin"
+        data-testid="portfolio-signin-required"
+      >
         <div className="portfolio-hero portfolio-hero--compact">
           <div>
             <span className="section-kicker">Portfolio</span>
@@ -132,6 +314,16 @@ export function PortfolioExperience() {
             <p>
               Keep deposits, withdrawals, and market-ready balance in one calm support surface.
             </p>
+            <div className="portfolio-signin-proof" aria-label="Portfolio highlights">
+              <div>
+                <strong>Wallet snapshot</strong>
+                <span>Available cash, reserved funds, and recent activity in one glance.</span>
+              </div>
+              <div>
+                <strong>Verification clarity</strong>
+                <span>KYC and M-Pesa readiness stay visible before you place or exit trades.</span>
+              </div>
+            </div>
           </div>
           <div className="portfolio-actions">
             <button type="button" className="primary-button" onClick={openAccountSheet}>
@@ -164,8 +356,8 @@ export function PortfolioExperience() {
         </div>
       </div>
 
-      <div className="portfolio-grid">
-        <section className="portfolio-card portfolio-card--summary">
+      <div className="portfolio-grid portfolio-grid--top">
+        <section className="portfolio-card portfolio-card--summary portfolio-card--hero">
           <div className="portfolio-card__head">
             <span className="market-chip">Wallet</span>
             <strong data-testid="portfolio-phone">{state.phone}</strong>
@@ -194,7 +386,7 @@ export function PortfolioExperience() {
           </div>
         </section>
 
-        <section className="portfolio-card">
+        <section className="portfolio-card portfolio-card--compliance">
           <div className="portfolio-card__head">
             <span className="market-chip">Compliance</span>
             <strong>KYC progress</strong>
@@ -231,7 +423,10 @@ export function PortfolioExperience() {
         </section>
       </div>
 
-      <section className="portfolio-card">
+      <section
+        id="portfolio-open-orders"
+        className="portfolio-card portfolio-card--spotlight"
+      >
         <div className="portfolio-card__head">
           <span className="market-chip">Open orders</span>
           <strong data-testid="portfolio-open-order-count">
@@ -251,15 +446,18 @@ export function PortfolioExperience() {
           <div>
             <span>Latest order state</span>
             <strong>
-              {snapshot.orders?.items[0]?.status.replace(/_/g, " ") ?? "No orders yet"}
+              {orderItems[0]?.status.replace(/_/g, " ") ?? "No orders yet"}
             </strong>
           </div>
         </div>
 
-        {snapshot.orders?.items.length ? (
+        {orderItems.length ? (
           <div className="portfolio-order-list" data-testid="portfolio-orders">
-            {snapshot.orders.items.slice(0, 6).map((item) => (
-              <article key={item.id} className="portfolio-order-item">
+            {orderItems.slice(0, 6).map((item, index) => (
+              <article
+                key={item.id}
+                className={`portfolio-order-item${index === 0 ? " portfolio-order-item--primary" : ""}`}
+              >
                 <div>
                   <strong>{item.marketLabel}</strong>
                   <span>
@@ -283,18 +481,65 @@ export function PortfolioExperience() {
         )}
       </section>
 
+      <section className="portfolio-card portfolio-card--alerts">
+        <div className="portfolio-card__head">
+          <span className="market-chip">Portfolio alerts</span>
+          <strong data-testid="portfolio-alert-count">{portfolioAlerts.length} cues</strong>
+        </div>
+
+        {portfolioAlerts.length ? (
+          <div className="portfolio-alert-list" data-testid="portfolio-alerts">
+            {portfolioAlerts.map((alert) => (
+              <article
+                key={alert.marketSlug}
+                className={`portfolio-alert-item portfolio-alert-item--${alert.tone}`}
+              >
+                <div className="portfolio-alert-item__head">
+                  <strong>{alert.label}</strong>
+                  <span>{alert.actionLabel}</span>
+                </div>
+                <p>{alert.message}</p>
+                <div className="portfolio-alert-item__meta">
+                  <span>{alert.detail}</span>
+                  <span>{alert.signalSummary}</span>
+                  {alert.lastInteractedAt ? (
+                    <span>Last active {formatDateLabel(alert.lastInteractedAt)}</span>
+                  ) : null}
+                </div>
+                <div className="portfolio-alert-item__actions">
+                  <Link href={alert.actionHref} className="primary-button">
+                    {alert.actionLabel}
+                  </Link>
+                  <Link href={alert.secondaryHref} className="ghost-button">
+                    {alert.secondaryLabel}
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="portfolio-state">
+            Once you browse and trade a few markets, this alert rail will start calling out the
+            ones worth revisiting.
+          </div>
+        )}
+      </section>
+
       <div className="portfolio-grid">
-        <section className="portfolio-card">
+        <section
+          id="portfolio-positions"
+          className={`portfolio-card${positions.length ? "" : " portfolio-card--mobile-empty"}`}
+        >
           <div className="portfolio-card__head">
             <span className="market-chip">Positions</span>
             <strong data-testid="portfolio-position-count">
-              {snapshot.orders?.positions.length ?? 0} markets
+              {positions.length} markets
             </strong>
           </div>
 
-          {snapshot.orders?.positions.length ? (
+          {positions.length ? (
             <div className="portfolio-exposure-list" data-testid="portfolio-positions">
-              {snapshot.orders.positions.map((position) => (
+              {positions.map((position) => (
                 <article
                   key={`${position.marketId}-${position.side}`}
                   className="portfolio-exposure-item"
@@ -327,13 +572,13 @@ export function PortfolioExperience() {
           <div className="portfolio-card__head">
             <span className="market-chip">Market exposure</span>
             <strong data-testid="portfolio-market-exposure-count">
-              {snapshot.orders?.markets.length ?? 0} markets
+              {marketExposure.length} markets
             </strong>
           </div>
 
-          {snapshot.orders?.markets.length ? (
+          {marketExposure.length ? (
             <div className="portfolio-exposure-list" data-testid="portfolio-market-exposure">
-              {snapshot.orders.markets.map((market) => (
+              {marketExposure.map((market) => (
                 <article key={market.marketId} className="portfolio-exposure-item">
                   <div>
                     <strong>{market.marketLabel}</strong>
@@ -364,13 +609,13 @@ export function PortfolioExperience() {
           <div className="portfolio-card__head">
             <span className="market-chip">Recent fills</span>
             <strong data-testid="portfolio-fill-count">
-              {snapshot.orders?.fills.length ?? 0} fills
+              {recentFills.length} fills
             </strong>
           </div>
 
-          {snapshot.orders?.fills.length ? (
+          {recentFills.length ? (
             <div className="portfolio-exposure-list" data-testid="portfolio-fills">
-              {snapshot.orders.fills.map((fill) => (
+              {recentFills.map((fill) => (
                 <article key={fill.tradeId} className="portfolio-exposure-item">
                   <div>
                     <strong>{fill.marketLabel}</strong>
@@ -398,13 +643,13 @@ export function PortfolioExperience() {
           <div className="portfolio-card__head">
             <span className="market-chip">Recent prints</span>
             <strong data-testid="portfolio-recent-prints-count">
-              {snapshot.orders?.recentPrints.length ?? 0} updates
+              {recentPrints.length} updates
             </strong>
           </div>
 
-          {snapshot.orders?.recentPrints.length ? (
+          {recentPrints.length ? (
             <div className="portfolio-exposure-list" data-testid="portfolio-recent-prints">
-              {snapshot.orders.recentPrints.map((printItem, index) => (
+              {recentPrints.map((printItem, index) => (
                 <article
                   key={`${printItem.marketId}-${printItem.timeLabel}-${index}`}
                   className="portfolio-exposure-item"
@@ -426,6 +671,48 @@ export function PortfolioExperience() {
             <div className="portfolio-state">
               Recent public prints from your active markets will appear here once the board has live
               activity to follow.
+            </div>
+          )}
+        </section>
+
+        <section className="portfolio-card">
+          <div className="portfolio-card__head">
+            <span className="market-chip">Discovery signals</span>
+            <strong data-testid="portfolio-discovery-signal-count">
+              {topFeedSignals.length} markets
+            </strong>
+          </div>
+
+          {topFeedSignals.length ? (
+            <div className="portfolio-exposure-list" data-testid="portfolio-discovery-signals">
+              {topFeedSignals.map((item) => (
+                <article key={item.marketSlug} className="portfolio-signal-item">
+                  <div>
+                    <strong>{item.label}</strong>
+                    <span>{item.detail}</span>
+                  </div>
+                  <div className="portfolio-order-item__amount">
+                    <strong>{item.statusLabel}</strong>
+                    <span>{item.summary}</span>
+                    {item.lastInteractedAt ? (
+                      <span>Last active {formatDateLabel(item.lastInteractedAt)}</span>
+                    ) : null}
+                  </div>
+                  <div className="portfolio-signal-item__actions">
+                    <Link href={item.actionHref} className="primary-button">
+                      {item.actionLabel}
+                    </Link>
+                    <Link href={item.secondaryHref} className="ghost-button">
+                      {item.secondaryLabel}
+                    </Link>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="portfolio-state">
+              Markets you linger on in the feed will start surfacing here once you browse a little
+              more.
             </div>
           )}
         </section>

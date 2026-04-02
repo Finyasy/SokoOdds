@@ -16,6 +16,10 @@ from app.schemas.account import (
     AdminWithdrawalReviewRequest,
     AuthOnboardRequest,
     AuthOnboardResponse,
+    FeedInteractionItemResponse,
+    FeedInteractionRecordRequest,
+    FeedInteractionsResponse,
+    FeedInteractionSyncRequest,
     KycProfileRequest,
     KycSubmissionResponse,
     MeResponse,
@@ -66,6 +70,62 @@ async def get_me(
     account: AuthenticatedAccountDep,
 ) -> MeResponse:
     return MeResponse(account=account.to_snapshot().to_response_model())
+
+
+@router.get(
+    "/feed/interactions",
+    status_code=status.HTTP_200_OK,
+    response_model=FeedInteractionsResponse,
+)
+async def get_feed_interactions(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> FeedInteractionsResponse:
+    try:
+        return await account_service.get_feed_interactions(user_id=account.user.id)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@router.post(
+    "/feed/interactions",
+    status_code=status.HTTP_200_OK,
+    response_model=FeedInteractionItemResponse,
+)
+async def record_feed_interaction(
+    payload: FeedInteractionRecordRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> FeedInteractionItemResponse:
+    try:
+        return await account_service.record_feed_interaction(
+            user_id=account.user.id,
+            market_slug=payload.marketSlug,
+            event_type=payload.eventType,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/feed/interactions/sync",
+    status_code=status.HTTP_200_OK,
+    response_model=FeedInteractionsResponse,
+)
+async def sync_feed_interactions(
+    payload: FeedInteractionSyncRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> FeedInteractionsResponse:
+    try:
+        return await account_service.sync_feed_interactions(
+            user_id=account.user.id,
+            payload=payload,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
 @router.post(

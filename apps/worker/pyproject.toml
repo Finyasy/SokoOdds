@@ -6,6 +6,9 @@ dependencies = [
   "celery",
   "redis",
   "pydantic-settings",
+  "sqlalchemy",
+  "psycopg[binary]",
+  "greenlet",
 ]
 
 [build-system]

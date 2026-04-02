@@ -12,6 +12,7 @@ import {
   type DiscoveryFocus
 } from "@/lib/market-discovery";
 import { MarketBoard } from "./market-board";
+import { MarketForYouHub } from "./market-for-you-hub";
 import { MarketSignalStrip } from "./market-signal-strip";
 import { TrendingHeroCarousel } from "./trending-hero-carousel";
 
@@ -35,6 +36,7 @@ type MarketDiscoveryShellProps = {
   showMoreLabel?: string;
   showUrgentRail?: boolean;
   showBoardOverview?: boolean;
+  showForYouHub?: boolean;
 };
 
 export function MarketDiscoveryShell({
@@ -56,7 +58,8 @@ export function MarketDiscoveryShell({
   showMoreHref,
   showMoreLabel,
   showUrgentRail = true,
-  showBoardOverview = false
+  showBoardOverview = false,
+  showForYouHub = false
 }: MarketDiscoveryShellProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -121,6 +124,7 @@ export function MarketDiscoveryShell({
       />
 
       <main className="site-shell page-stack">
+        {showForYouHub ? <MarketForYouHub markets={markets} /> : null}
         {showTrendingHero ? <TrendingHeroCarousel markets={heroMarkets ?? markets} /> : null}
 
         {showSignals ? (
@@ -144,6 +148,7 @@ export function MarketDiscoveryShell({
           kicker={boardKicker}
           countQualifier={boardCountQualifier}
           filteredMarkets={filteredMarkets}
+          allMarkets={markets}
           activeFilter={deferredCategory}
           activeFocus={deferredFocus}
           searchQuery={searchQuery}

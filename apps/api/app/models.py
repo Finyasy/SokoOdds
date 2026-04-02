@@ -170,6 +170,43 @@ class Position(Base):
     )
 
 
+class EngineState(Base):
+    __tablename__ = "engine_state"
+
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class UserFeedInteraction(Base):
+    __tablename__ = "user_feed_interactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "market_slug",
+            name="uq_user_feed_interactions_user_market_slug",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    market_slug: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    viewed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    paused_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    opened_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_interacted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class LedgerEntry(Base):
     __tablename__ = "ledger_entries"
 

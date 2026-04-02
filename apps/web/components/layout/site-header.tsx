@@ -1,10 +1,13 @@
 "use client";
-import { useRouter } from "next/navigation";
-import type { FormEvent } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import type { FormEvent, MouseEvent } from "react";
 import { useState, useTransition } from "react";
 import { HeaderUtilityMenu } from "@/components/layout/header-utility-menu";
 import { SokoOddsLogo } from "@/components/layout/sokoodds-logo";
 import { AccountAccessButton } from "@/components/onboarding/account-access-button";
+import { useOnboarding } from "@/components/onboarding/onboarding-provider";
+import { formatKes } from "@/lib/mock-data";
 import {
   buildDiscoveryHref,
   discoveryNavItems,
@@ -31,6 +34,8 @@ export function SiteHeader({
   onSelectMarketCategory
 }: SiteHeaderProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const { state, openAccountSheet, openVerificationSheet } = useOnboarding();
   const [, startTransition] = useTransition();
   const [localSearchValue, setLocalSearchValue] = useState("");
   const [localCategory, setLocalCategory] = useState<DiscoveryCategory>("All");
@@ -85,6 +90,18 @@ export function SiteHeader({
     });
   }
 
+  function handleNavItemClick(
+    event: MouseEvent<HTMLAnchorElement>,
+    category: DiscoveryCategory
+  ) {
+    if (pathname !== "/markets" && !pathname.startsWith("/markets/")) {
+      return;
+    }
+
+    event.preventDefault();
+    handleCategorySelect(category);
+  }
+
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -124,21 +141,48 @@ export function SiteHeader({
         </form>
 
         <div className="site-header__actions">
-          <AccountAccessButton />
+          {state.isSignedIn && state.mpesaVerified ? (
+            <div className="header-balance-strip" data-testid="account-wallet-button">
+              <span className="sr-only">
+                {state.kycStatus === "approved"
+                  ? "M-Pesa ready · KYC approved"
+                  : state.kycStatus === "pending"
+                    ? "M-Pesa ready · KYC pending"
+                    : "M-Pesa ready"}
+              </span>
+              <Link href="/portfolio" className="header-balance-strip__item">
+                <span>Portfolio</span>
+                <strong>{formatKes(state.reservedBalanceKes)}</strong>
+              </Link>
+              <Link href="/cash" className="header-balance-strip__item">
+                <span>Cash</span>
+                <strong>{formatKes(state.walletBalanceKes)}</strong>
+              </Link>
+              <button
+                type="button"
+                className="header-deposit-button"
+                onClick={() => openVerificationSheet()}
+              >
+                Deposit
+              </button>
+            </div>
+          ) : (
+            <AccountAccessButton />
+          )}
           <HeaderUtilityMenu />
         </div>
       </div>
 
       <nav className="site-nav" aria-label="Primary">
         {discoveryNavItems.map((item) => (
-          <button
+          <Link
             key={item.label}
-            type="button"
+            href={buildDiscoveryHref("/markets", item.value, currentSearchValue, activeMarketFocus)}
             className={`site-nav__item${currentCategory === item.value ? " site-nav__item--active" : ""}`}
-            onClick={() => handleCategorySelect(item.value)}
+            onClick={(event) => handleNavItemClick(event, item.value)}
           >
             {item.label}
-          </button>
+          </Link>
         ))}
       </nav>
     </header>

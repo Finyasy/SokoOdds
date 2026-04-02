@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import type { MouseEvent } from "react";
 import { SokoOddsBadge } from "@/components/layout/sokoodds-logo";
 import { formatKes } from "@/lib/mock-data";
 import { useOnboarding } from "./onboarding-provider";
@@ -8,15 +10,27 @@ export function AccountAccessButton() {
   const { state, isHydrated, isSyncingAccount, openAccountSheet, openVerificationSheet } =
     useOnboarding();
 
+  function handleAccountLinkClick(
+    event: MouseEvent<HTMLAnchorElement>,
+    action: "account" | "verify"
+  ) {
+    event.preventDefault();
+    if (action === "verify") {
+      openVerificationSheet();
+      return;
+    }
+    openAccountSheet();
+  }
+
   if (!isHydrated) {
     return (
       <div className="auth-actions" data-testid="account-wallet-button">
-        <button type="button" className="auth-link-button" onClick={openAccountSheet}>
+        <Link href="/account/access?mode=login" className="auth-link-button">
           Log In
-        </button>
-        <button type="button" className="primary-button" onClick={openAccountSheet}>
+        </Link>
+        <Link href="/account/access?mode=signup" className="primary-button">
           Sign Up
-        </button>
+        </Link>
       </div>
     );
   }
@@ -47,10 +61,10 @@ export function AccountAccessButton() {
           : "M-Pesa ready";
 
     return (
-      <button
-        type="button"
+      <Link
+        href="/account/access?mode=wallet"
         className="wallet-button"
-        onClick={openVerificationSheet}
+        onClick={(event) => handleAccountLinkClick(event, "verify")}
         data-testid="account-wallet-button"
       >
         <SokoOddsBadge className="wallet-button__brand" alt="SokoOdds wallet" />
@@ -58,16 +72,16 @@ export function AccountAccessButton() {
           <span className="wallet-button__label">{setupLabel}</span>
           <strong>{formatKes(state.walletBalanceKes)}</strong>
         </span>
-      </button>
+      </Link>
     );
   }
 
   if (state.isSignedIn) {
     return (
-      <button
-        type="button"
+      <Link
+        href="/account/access?mode=wallet"
         className="wallet-button wallet-button--pending"
-        onClick={openVerificationSheet}
+        onClick={(event) => handleAccountLinkClick(event, "verify")}
         data-testid="account-wallet-button"
       >
         <SokoOddsBadge className="wallet-button__brand" alt="SokoOdds wallet" />
@@ -75,18 +89,26 @@ export function AccountAccessButton() {
           <span className="wallet-button__label">Finish setup</span>
           <strong>Verify M-Pesa</strong>
         </span>
-      </button>
+      </Link>
     );
   }
 
   return (
     <div className="auth-actions" data-testid="account-wallet-button">
-      <button type="button" className="auth-link-button" onClick={openAccountSheet}>
+      <Link
+        href="/account/access?mode=login"
+        className="auth-link-button"
+        onClick={(event) => handleAccountLinkClick(event, "account")}
+      >
         Log In
-      </button>
-      <button type="button" className="primary-button" onClick={openAccountSheet}>
+      </Link>
+      <Link
+        href="/account/access?mode=signup"
+        className="primary-button"
+        onClick={(event) => handleAccountLinkClick(event, "account")}
+      >
         Sign Up
-      </button>
+      </Link>
     </div>
   );
 }

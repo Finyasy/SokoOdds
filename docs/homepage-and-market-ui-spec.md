@@ -53,13 +53,15 @@ Already live in the checked-in app:
 - M-Pesa verification credits `KES 5.00` once and returns the user to the order ticket as `wallet ready`
 - verified wallets can trigger a quick `KES 500` M-Pesa top-up from the same setup surface without leaving the market
 - the top-up UI now keeps the same compact wallet sheet while the backend runs a real deposit lifecycle with Daraja stub or sandbox initiation plus callback completion
+- withdrawals can now be initiated from the same wallet setup flow, including `review_required` handling for larger payouts
+- the web app now includes account-aware `/portfolio` and `/cash` surfaces for wallet balances, recent money movement, KYC state, and payout readiness
 - the first sample order submits against the live API and updates available versus reserved balance in the UI
 
 Still intentionally not live in this pass:
 
-- full KYC workflow
+- richer KYC evidence collection and document upload workflow
 - live WebSocket order book updates
-- withdrawals and full Daraja-backed payment settlement beyond the current deposit initiation/callback flow
+- full realtime trading surfaces beyond the current account and ledger views
 
 ## Benchmark Synthesis
 

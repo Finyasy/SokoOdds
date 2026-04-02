@@ -16,10 +16,12 @@ from app.models import (
     Position,
     Trade,
     User,
+    UserFeedInteraction,
     UserSession,
     Wallet,
     Withdrawal,
 )
+from app.schemas.account import FeedInteractionSyncItemRequest, FeedInteractionSyncRequest
 from app.services.account_access import AccountAccessService
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -574,3 +576,76 @@ async def test_admin_can_release_review_required_withdrawal(async_session: Async
     assert wallet is not None
     assert wallet.available_balance == Decimal("405.00")
     assert wallet.reserved_balance == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_feed_interactions_are_persisted_and_incremented(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+
+    first = await service.record_feed_interaction(
+        user_id=onboarded.account.user_id,
+        market_slug="cbk-cut-rate-before-september-end",
+        event_type="view",
+    )
+    second = await service.record_feed_interaction(
+        user_id=onboarded.account.user_id,
+        market_slug="cbk-cut-rate-before-september-end",
+        event_type="open",
+    )
+    listing = await service.get_feed_interactions(user_id=onboarded.account.user_id)
+
+    persisted = await async_session.scalar(
+        select(UserFeedInteraction).where(
+            UserFeedInteraction.user_id == onboarded.account.user_id,
+            UserFeedInteraction.market_slug == "cbk-cut-rate-before-september-end",
+        )
+    )
+
+    assert first.marketSlug == "cbk-cut-rate-before-september-end"
+    assert second.openedCount == 1
+    assert persisted is not None
+    assert persisted.viewed_count == 1
+    assert persisted.opened_count == 1
+    assert listing.items[0].marketSlug == "cbk-cut-rate-before-september-end"
+
+
+@pytest.mark.asyncio
+async def test_feed_interaction_sync_merges_anonymous_history(async_session: AsyncSession) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    await service.record_feed_interaction(
+        user_id=onboarded.account.user_id,
+        market_slug="cbk-cut-rate-before-september-end",
+        event_type="view",
+    )
+
+    synced = await service.sync_feed_interactions(
+        user_id=onboarded.account.user_id,
+        payload=FeedInteractionSyncRequest(
+            items=[
+                FeedInteractionSyncItemRequest(
+                    marketSlug="cbk-cut-rate-before-september-end",
+                    viewedCount=3,
+                    pausedCount=2,
+                    openedCount=1,
+                    lastInteractedAt=datetime.now(UTC).isoformat(),
+                )
+            ]
+        ),
+    )
+
+    assert synced.items[0].marketSlug == "cbk-cut-rate-before-september-end"
+    assert synced.items[0].viewedCount == 3
+    assert synced.items[0].pausedCount == 2
+    assert synced.items[0].openedCount == 1

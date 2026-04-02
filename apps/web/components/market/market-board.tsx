@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useMemo } from "react";
 import type { Market } from "@/lib/mock-data";
 import {
   discoveryCategories,
@@ -15,6 +16,7 @@ type MarketBoardProps = {
   kicker: string;
   countQualifier: string;
   filteredMarkets: Market[];
+  allMarkets?: Market[];
   activeFilter: DiscoveryCategory;
   activeFocus: DiscoveryFocus;
   searchQuery: string;
@@ -35,6 +37,7 @@ export function MarketBoard({
   kicker,
   countQualifier,
   filteredMarkets,
+  allMarkets,
   activeFilter,
   activeFocus,
   searchQuery,
@@ -51,6 +54,17 @@ export function MarketBoard({
 }: MarketBoardProps) {
   const urgentMarkets = filteredMarkets.filter((market) => market.status === "Closing Soon").slice(0, 3);
   const openMarkets = filteredMarkets.filter((market) => market.status === "Open").length;
+
+  const categoryCounts = useMemo(() => {
+    const source = allMarkets ?? filteredMarkets;
+    const counts: Record<string, number> = { All: source.length };
+    for (const m of source) {
+      counts[m.category] = (counts[m.category] ?? 0) + 1;
+    }
+    return counts;
+  }, [allMarkets, filteredMarkets]);
+
+  const showCategorySidebar = activeFilter !== "All";
   const countLabel = `${filteredMarkets.length} ${countQualifier} contract${
     filteredMarkets.length === 1 ? "" : "s"
   }`;
@@ -129,43 +143,63 @@ export function MarketBoard({
         ))}
       </div>
 
-      {showUrgentRail && urgentMarkets.length ? (
-        <div className="market-rail" aria-label="Ending soon markets">
-          <span className="market-rail__label">Ending soon</span>
-          <div className="market-rail__items">
-            {urgentMarkets.map((market) => (
-              <Link key={market.slug} href={`/markets/${market.slug}`} className="market-rail__item">
-                <strong>{market.shortLabel}</strong>
-                <span>{formatClosingLabel(market.closesAt)}</span>
-              </Link>
+      <div className={showCategorySidebar ? "discovery-layout" : ""}>
+        {showCategorySidebar ? (
+          <nav className="category-sidebar" aria-label="Category filters">
+            {discoveryCategories.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`category-sidebar__item${activeFilter === cat ? " category-sidebar__item--active" : ""}`}
+                onClick={() => onFilterChange(cat)}
+              >
+                <span>{cat}</span>
+                <span className="category-sidebar__count">{categoryCounts[cat] ?? 0}</span>
+              </button>
             ))}
-          </div>
-        </div>
-      ) : null}
+          </nav>
+        ) : null}
 
-      {filteredMarkets.length ? (
-        <div className="card-grid card-grid--glance card-grid--landing" data-testid="market-board-grid">
-          {filteredMarkets.map((market) => (
-            <MarketCard key={market.slug} market={market} variant="glance" />
-          ))}
+        <div>
+          {showUrgentRail && urgentMarkets.length ? (
+            <div className="market-rail" aria-label="Ending soon markets">
+              <span className="market-rail__label">Ending soon</span>
+              <div className="market-rail__items">
+                {urgentMarkets.map((market) => (
+                  <Link key={market.slug} href={`/markets/${market.slug}`} className="market-rail__item">
+                    <strong>{market.shortLabel}</strong>
+                    <span>{formatClosingLabel(market.closesAt)}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {filteredMarkets.length ? (
+            <div className="card-grid card-grid--glance card-grid--landing" data-testid="market-board-grid">
+              {filteredMarkets.map((market) => (
+                <MarketCard key={market.slug} market={market} variant="glance" />
+              ))}
+            </div>
+          ) : (
+            <div className="market-board-empty" data-testid="market-board-empty">
+              <strong>
+                {trimmedSearchQuery
+                  ? `No matching contracts in ${boardScope}.`
+                  : `No live contracts in ${boardScope} yet.`}
+              </strong>
+              <span>
+                {trimmedSearchQuery
+                  ? `Nothing in ${boardScope} matches "${trimmedSearchQuery}". Try another term or reset the board.`
+                  : `Try another category or reset the board to bring back the broader market feed.`}
+              </span>
+              <button type="button" className="ghost-button" onClick={onClearDiscovery}>
+                Show all markets
+              </button>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="market-board-empty" data-testid="market-board-empty">
-          <strong>
-            {trimmedSearchQuery
-              ? `No matching contracts in ${boardScope}.`
-              : `No live contracts in ${boardScope} yet.`}
-          </strong>
-          <span>
-            {trimmedSearchQuery
-              ? `Nothing in ${boardScope} matches “${trimmedSearchQuery}”. Try another term or reset the board.`
-              : `Try another category or reset the board to bring back the broader market feed.`}
-          </span>
-          <button type="button" className="ghost-button" onClick={onClearDiscovery}>
-            Show all markets
-          </button>
-        </div>
-      )}
+      </div>
 
       {showMoreHref && showMoreLabel && filteredMarkets.length ? (
         <div className="market-board__show-more">

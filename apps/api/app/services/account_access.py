@@ -26,6 +26,7 @@ from app.models import (
     Position,
     Trade,
     User,
+    UserFeedInteraction,
     UserSession,
     Wallet,
     Withdrawal,
@@ -37,6 +38,9 @@ from app.schemas.account import (
     AdminKycQueueResponse,
     AdminWalletSupportItemResponse,
     AdminWalletSupportResponse,
+    FeedInteractionItemResponse,
+    FeedInteractionsResponse,
+    FeedInteractionSyncRequest,
     KycProfileResponse,
     KycSubmissionResponse,
     PortfolioExposureResponse,
@@ -67,6 +71,7 @@ ACTIVE_ORDER_STATUSES = {
     "partial",
     "partially_filled",
 }
+FEED_INTERACTION_EVENT_TYPES = {"view", "pause", "open"}
 
 
 class AuthenticationError(Exception):
@@ -75,6 +80,16 @@ class AuthenticationError(Exception):
 
 class WalletFundingError(Exception):
     pass
+
+
+def _parse_feed_interaction_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -395,6 +410,26 @@ class PortfolioRecentPrint:
             priceKes=f"{self.price:.2f}",
             shares=f"{self.shares:.0f}",
             timeLabel=self.time_label,
+        )
+
+
+@dataclass(frozen=True)
+class FeedInteractionItem:
+    market_slug: str
+    viewed_count: int
+    paused_count: int
+    opened_count: int
+    last_interacted_at: datetime | None
+
+    def to_response_model(self) -> FeedInteractionItemResponse:
+        return FeedInteractionItemResponse(
+            marketSlug=self.market_slug,
+            viewedCount=self.viewed_count,
+            pausedCount=self.paused_count,
+            openedCount=self.opened_count,
+            lastInteractedAt=(
+                self.last_interacted_at.isoformat() if self.last_interacted_at is not None else None
+            ),
         )
 
 
@@ -1159,6 +1194,141 @@ class AccountAccessService:
             markets=market_exposure_items,
             recentPrints=recent_prints[:6],
         )
+
+    async def get_feed_interactions(self, *, user_id: str) -> FeedInteractionsResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        result = await self.session.execute(
+            select(UserFeedInteraction)
+            .where(UserFeedInteraction.user_id == user_id)
+            .order_by(desc(UserFeedInteraction.updated_at))
+        )
+        interactions = result.scalars().all()
+
+        return FeedInteractionsResponse(
+            items=[
+                FeedInteractionItem(
+                    market_slug=interaction.market_slug,
+                    viewed_count=interaction.viewed_count,
+                    paused_count=interaction.paused_count,
+                    opened_count=interaction.opened_count,
+                    last_interacted_at=interaction.last_interacted_at,
+                ).to_response_model()
+                for interaction in interactions
+            ]
+        )
+
+    async def record_feed_interaction(
+        self,
+        *,
+        user_id: str,
+        market_slug: str,
+        event_type: str,
+    ) -> FeedInteractionItemResponse:
+        if event_type not in FEED_INTERACTION_EVENT_TYPES:
+            raise WalletFundingError("Unsupported feed interaction event.")
+
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        async with self._transaction():
+            result = await self.session.execute(
+                select(UserFeedInteraction).where(
+                    UserFeedInteraction.user_id == user_id,
+                    UserFeedInteraction.market_slug == market_slug,
+                )
+            )
+            interaction = result.scalar_one_or_none()
+
+            if interaction is None:
+                interaction = UserFeedInteraction(
+                    id=str(uuid4()),
+                    user_id=user_id,
+                    market_slug=market_slug,
+                    viewed_count=0,
+                    paused_count=0,
+                    opened_count=0,
+                )
+                self.session.add(interaction)
+                await self.session.flush()
+
+            if event_type == "view":
+                interaction.viewed_count += 1
+            elif event_type == "pause":
+                interaction.paused_count += 1
+            else:
+                interaction.opened_count += 1
+            interaction.last_interacted_at = datetime.now(UTC)
+
+        return FeedInteractionItem(
+            market_slug=interaction.market_slug,
+            viewed_count=interaction.viewed_count,
+            paused_count=interaction.paused_count,
+            opened_count=interaction.opened_count,
+            last_interacted_at=interaction.last_interacted_at,
+        ).to_response_model()
+
+    async def sync_feed_interactions(
+        self,
+        *,
+        user_id: str,
+        payload: FeedInteractionSyncRequest,
+    ) -> FeedInteractionsResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        async with self._transaction():
+            for item in payload.items:
+                result = await self.session.execute(
+                    select(UserFeedInteraction).where(
+                        UserFeedInteraction.user_id == user_id,
+                        UserFeedInteraction.market_slug == item.marketSlug,
+                    )
+                )
+                interaction = result.scalar_one_or_none()
+
+                if interaction is None:
+                    interaction = UserFeedInteraction(
+                        id=str(uuid4()),
+                        user_id=user_id,
+                        market_slug=item.marketSlug,
+                        viewed_count=item.viewedCount,
+                        paused_count=item.pausedCount,
+                        opened_count=item.openedCount,
+                        last_interacted_at=_parse_feed_interaction_timestamp(
+                            item.lastInteractedAt
+                        ),
+                    )
+                    self.session.add(interaction)
+                    continue
+
+                interaction.viewed_count = max(interaction.viewed_count, item.viewedCount)
+                interaction.paused_count = max(interaction.paused_count, item.pausedCount)
+                interaction.opened_count = max(interaction.opened_count, item.openedCount)
+                if item.lastInteractedAt:
+                    incoming_last_interacted_at = _parse_feed_interaction_timestamp(
+                        item.lastInteractedAt
+                    )
+                    existing_last_interacted_at = (
+                        interaction.last_interacted_at.replace(tzinfo=UTC)
+                        if interaction.last_interacted_at is not None
+                        and interaction.last_interacted_at.tzinfo is None
+                        else interaction.last_interacted_at
+                    )
+                    if (
+                        existing_last_interacted_at is None
+                        or (
+                            incoming_last_interacted_at is not None
+                            and incoming_last_interacted_at > existing_last_interacted_at
+                        )
+                    ):
+                        interaction.last_interacted_at = incoming_last_interacted_at
+
+        return await self.get_feed_interactions(user_id=user_id)
 
     async def get_kyc_profile(self, *, user_id: str) -> KycSubmissionResponse | None:
         account = await self._load_account_snapshot(user_id)

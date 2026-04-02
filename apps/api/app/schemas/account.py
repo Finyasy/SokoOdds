@@ -189,6 +189,35 @@ class PortfolioOrdersResponse(BaseModel):
     recentPrints: list[PortfolioRecentPrintResponse]
 
 
+class FeedInteractionItemResponse(BaseModel):
+    marketSlug: str
+    viewedCount: int
+    pausedCount: int
+    openedCount: int
+    lastInteractedAt: str | None = None
+
+
+class FeedInteractionsResponse(BaseModel):
+    items: list[FeedInteractionItemResponse]
+
+
+class FeedInteractionRecordRequest(BaseModel):
+    marketSlug: str = Field(min_length=2, max_length=128)
+    eventType: str = Field(pattern=r"^(view|pause|open)$")
+
+
+class FeedInteractionSyncItemRequest(BaseModel):
+    marketSlug: str = Field(min_length=2, max_length=128)
+    viewedCount: int = Field(ge=0)
+    pausedCount: int = Field(ge=0)
+    openedCount: int = Field(ge=0)
+    lastInteractedAt: str | None = None
+
+
+class FeedInteractionSyncRequest(BaseModel):
+    items: list[FeedInteractionSyncItemRequest]
+
+
 class KycProfileRequest(BaseModel):
     legalName: str = Field(min_length=4, max_length=120)
     nationalIdNumber: str = Field(min_length=6, max_length=32)

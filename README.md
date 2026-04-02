@@ -40,7 +40,7 @@ The checked-in local stack is defined in [infra/compose/compose.yaml](infra/comp
 
 ## Review The Current UI
 
-- Open the live site at [http://localhost:3000](http://localhost:3000)
+- Open the live site at [http://127.0.0.1:3000](http://127.0.0.1:3000)
 - The current high-value review path is:
   - open a market detail page
   - dismiss the first-visit WhatsApp prompt
@@ -49,9 +49,10 @@ The checked-in local stack is defined in [infra/compose/compose.yaml](infra/comp
 - trigger the `KES 500` M-Pesa top-up and confirm the wallet refreshes after the deposit completes
 - trigger the `KES 200` withdrawal and confirm the wallet balance drops while the payout completes
 - submit the lightweight KYC form from the wallet sheet and confirm it moves into `KYC pending`
-- open [http://localhost:3000/portfolio](http://localhost:3000/portfolio) to review wallet cash, reserved funds, KYC status, recent money movement, and open-order exposure in one account surface
-- switch to [http://localhost:3000/admin/kyc](http://localhost:3000/admin/kyc), sign in with an allowlisted admin number, and review the pending KYC applicant
-- switch to [http://localhost:3000/admin/support](http://localhost:3000/admin/support) and inspect recent deposits and withdrawals from the admin support queue
+- open [http://127.0.0.1:3000/cash](http://127.0.0.1:3000/cash) to review funding status, withdrawal readiness, and recent wallet ledger activity in a dedicated surface
+- open [http://127.0.0.1:3000/portfolio](http://127.0.0.1:3000/portfolio) to review wallet cash, reserved funds, KYC status, recent money movement, and open-order exposure in one account surface
+- switch to [http://127.0.0.1:3000/admin/kyc](http://127.0.0.1:3000/admin/kyc), sign in with an allowlisted admin number, and review the pending KYC applicant
+- switch to [http://127.0.0.1:3000/admin/support](http://127.0.0.1:3000/admin/support) and inspect recent deposits and withdrawals from the admin support queue
 - release or reject `review_required` withdrawals from the same admin support queue when manual payout review is needed
 - confirm the wallet sheet now shows recent verification, top-up, and withdrawal activity inline
 - place the sample order and confirm available versus reserved balance updates
@@ -71,7 +72,7 @@ The current Playwright coverage in `pnpm test:e2e:web` verifies:
 - signed-out and signed-in portfolio/account overview states
 - first live order submission from the order ticket
 
-The local scripts default to `localhost` for API and engine probes. If another project is already bound to the same ports on `127.0.0.1`, keep `API_HOST=localhost` and `ENGINE_HOST=localhost` in `.env`, or move the ports in `.env` to avoid collisions.
+The local scripts still default to `localhost` for API and engine probes, but the web app should now be reviewed on `127.0.0.1:3000` because that is the host the active Next dev server binds to. If another project is already bound to the same ports on `127.0.0.1`, keep `API_HOST=localhost` and `ENGINE_HOST=localhost` in `.env`, or move the ports in `.env` to avoid collisions.
 
 The web app uses `SOKOODDS_API_SERVER_URL` for server-side fetches and `NEXT_PUBLIC_API_BASE_URL` for browser-side requests. In Docker Compose the internal server URL points at `http://api:8000/api/v1`.
 
@@ -85,9 +86,9 @@ For production-style callback hardening, set:
 For KYC rollout, the current repo now supports a lightweight KYC submission and admin-review path. Use:
 - `ADMIN_PHONE_ALLOWLIST` for the phones allowed to access admin KYC review endpoints
 - `REQUIRE_APPROVED_KYC_FOR_ORDERS=true` only when you want order placement to enforce approved KYC server-side
-- the web review surface lives at [http://localhost:3000/admin/kyc](http://localhost:3000/admin/kyc) and uses the same `sokoodds_session` cookie-backed account flow as the market pages
+- the web review surface lives at [http://127.0.0.1:3000/admin/kyc](http://127.0.0.1:3000/admin/kyc) and uses the same `sokoodds_session` cookie-backed account flow as the market pages
 
-For ops/support review, the current repo also includes [http://localhost:3000/admin/support](http://localhost:3000/admin/support), which reads recent deposit and withdrawal activity through the same allowlisted admin session.
+For ops/support review, the current repo also includes [http://127.0.0.1:3000/admin/support](http://127.0.0.1:3000/admin/support), which reads recent deposit and withdrawal activity through the same allowlisted admin session.
 
 For account-aware browser actions, the Next.js app uses same-origin route handlers under `/api/account/*` and `/api/orders`. Those handlers proxy to FastAPI and keep the session token in the `sokoodds_session` HTTP-only cookie.
 

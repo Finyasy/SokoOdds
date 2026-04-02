@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 type SokoOddsLogoProps = {
@@ -19,12 +20,13 @@ export function SokoOddsBadge({
 
   return (
     <span className={badgeClassName}>
-      <img
+      <Image
         src="/brand/IMG_4649.jpg"
         alt={alt}
         className="brand-badge__image"
-        width="1320"
-        height="1281"
+        width={1320}
+        height={1281}
+        sizes="32px"
       />
     </span>
   );
@@ -34,12 +36,13 @@ export function SokoOddsLogo({ href = "/", subtitle, compact = false }: SokoOdds
   const content = (
     <>
       <span className={`brand-mark__artwork${compact ? " brand-mark__artwork--compact" : ""}`}>
-        <img
+        <Image
           src="/brand/IMG_4649.jpg"
           alt="SokoOdds lion logo"
           className="brand-mark__image"
-          width="1320"
-          height="1281"
+          width={1320}
+          height={1281}
+          sizes={compact ? "168px" : "184px"}
         />
       </span>
       {subtitle ? (

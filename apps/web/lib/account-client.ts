@@ -163,6 +163,18 @@ export type PortfolioOrdersResponse = {
   recentPrints: PortfolioRecentPrint[];
 };
 
+export type FeedInteractionItem = {
+  marketSlug: string;
+  viewedCount: number;
+  pausedCount: number;
+  openedCount: number;
+  lastInteractedAt: string | null;
+};
+
+export type FeedInteractionsResponse = {
+  items: FeedInteractionItem[];
+};
+
 export type KycProfileResponse = {
   status: string;
   legalName: string;
@@ -243,6 +255,24 @@ function getErrorMessage(payload: AccountApiErrorShape | null, fallback: string)
   return fallback;
 }
 
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs = 2500
+) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export async function createAccountSession(input: {
   firstName: string;
   phone: string;
@@ -264,7 +294,7 @@ export async function createAccountSession(input: {
 }
 
 export async function fetchCurrentAccount(): Promise<AccountSnapshot | null> {
-  const response = await fetch("/api/account/me", {
+  const response = await fetchWithTimeout("/api/account/me", {
     cache: "no-store"
   });
 
@@ -553,4 +583,56 @@ export async function submitOrder(
     payload,
     idempotencyStatus: response.headers.get("X-Idempotency-Status")
   };
+}
+
+export async function fetchFeedInteractions(): Promise<FeedInteractionsResponse> {
+  const response = await fetch("/api/account/feed/interactions", {
+    cache: "no-store"
+  });
+
+  const payload = await readJson<FeedInteractionsResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.items) {
+    throw new Error(getErrorMessage(payload, "Could not read feed interactions."));
+  }
+
+  return payload;
+}
+
+export async function recordFeedInteraction(input: {
+  marketSlug: string;
+  eventType: "view" | "pause" | "open";
+}): Promise<FeedInteractionItem> {
+  const response = await fetch("/api/account/feed/interactions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+
+  const payload = await readJson<FeedInteractionItem & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.marketSlug) {
+    throw new Error(getErrorMessage(payload, "Could not save the feed interaction."));
+  }
+
+  return payload;
+}
+
+export async function syncFeedInteractions(input: {
+  items: FeedInteractionItem[];
+}): Promise<FeedInteractionsResponse> {
+  const response = await fetch("/api/account/feed/interactions/sync", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(input)
+  });
+
+  const payload = await readJson<FeedInteractionsResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.items) {
+    throw new Error(getErrorMessage(payload, "Could not sync feed interactions."));
+  }
+
+  return payload;
 }
