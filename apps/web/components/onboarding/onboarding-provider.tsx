@@ -15,20 +15,29 @@ import {
 } from "react";
 import {
   createAccountSession,
+  deleteCommentThreadFollow as deleteCommentThreadFollowRequest,
+  fetchCommentThreadFollows,
+  fetchCommentThreadNotifications,
   fetchFeedInteractions,
+  fetchPortfolioOrders,
   fetchWalletDepositStatus,
   fetchWalletTransactions,
   fetchWalletWithdrawalStatus,
   fetchCurrentAccount,
   submitKycProfile,
   submitOrder as submitOrderRequest,
+  syncCommentThreadFollows as syncCommentThreadFollowsRequest,
   recordFeedInteraction as recordFeedInteractionRequest,
   syncFeedInteractions as syncFeedInteractionsRequest,
   topUpWallet,
+  upsertCommentThreadFollow as upsertCommentThreadFollowRequest,
   withdrawFromWallet,
   type AccountSnapshot,
+  type CommentThreadFollowItem,
+  type CommentThreadNotificationItem,
   type KycProfileResponse,
   type OrderSubmissionPayload,
+  type PortfolioOrdersResponse,
   type WalletTransactionItem,
   verifyMpesaWallet
 } from "@/lib/account-client";
@@ -43,6 +52,7 @@ type OnboardingState = {
   hasSeenWhatsAppPrompt: boolean;
   joinedWhatsApp: boolean;
   isSignedIn: boolean;
+  isAdmin: boolean;
   name: string;
   phone: string;
   mpesaVerified: boolean;
@@ -65,6 +75,11 @@ export type FeedInteraction = {
   lastInteractedAt: string | null;
 };
 
+export type CommentThreadFollow = {
+  lastSeenReplyCount: number;
+  autoFollowed: boolean;
+};
+
 type AccountSheetView = "closed" | "account" | "verify";
 type VerificationState = "idle" | "submitting-account" | "sending" | "sent";
 type DepositState = "idle" | "sending" | "sent";
@@ -77,6 +92,9 @@ type OnboardingContextValue = {
   recentMarketSlugs: string[];
   notificationPreferences: NotificationPreferences;
   feedInteractions: Record<string, FeedInteraction>;
+  commentThreadFollows: Record<string, Record<string, CommentThreadFollow>>;
+  commentThreadNotifications: CommentThreadNotificationItem[];
+  portfolioOrders: PortfolioOrdersResponse | null;
   isHydrated: boolean;
   isSyncingAccount: boolean;
   accountSheetView: AccountSheetView;
@@ -108,6 +126,15 @@ type OnboardingContextValue = {
     key: keyof NotificationPreferences,
     value: boolean
   ) => void;
+  followCommentThread: (
+    marketSlug: string,
+    commentId: string,
+    replyCount: number,
+    autoFollowed?: boolean
+  ) => void;
+  unfollowCommentThread: (marketSlug: string, commentId: string) => void;
+  markCommentThreadSeen: (marketSlug: string, commentId: string, replyCount: number) => void;
+  refreshPortfolioOrders: () => Promise<void>;
   dismissWhatsAppPrompt: () => void;
   joinWhatsAppAlerts: () => void;
   showWhatsAppPrompt: boolean;
@@ -125,6 +152,7 @@ const DEFAULT_STATE: OnboardingState = {
   hasSeenWhatsAppPrompt: false,
   joinedWhatsApp: false,
   isSignedIn: false,
+  isAdmin: false,
   name: "",
   phone: "",
   mpesaVerified: false,
@@ -258,6 +286,66 @@ function loadStoredFeedInteractions(): Record<string, FeedInteraction> {
   }
 }
 
+function loadStoredCommentThreadFollows(): Record<string, Record<string, CommentThreadFollow>> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const raw = window.localStorage.getItem("sokoodds.comment-thread-follows");
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Record<string, Partial<CommentThreadFollow>>>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([marketSlug, threads]) => [
+        marketSlug,
+        Object.fromEntries(
+          Object.entries(threads).map(([commentId, value]) => [
+            commentId,
+            {
+              lastSeenReplyCount:
+                typeof value.lastSeenReplyCount === "number" ? value.lastSeenReplyCount : 0,
+              autoFollowed: value.autoFollowed === true,
+            },
+          ]),
+        ),
+      ]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function mergeCommentThreadFollows(
+  current: Record<string, Record<string, CommentThreadFollow>>,
+  incoming: Record<string, Record<string, CommentThreadFollow>>,
+) {
+  const merged = { ...current };
+
+  for (const [marketSlug, threads] of Object.entries(incoming)) {
+    const currentThreads = merged[marketSlug] ?? {};
+    merged[marketSlug] = Object.fromEntries(
+      Object.entries({
+        ...currentThreads,
+        ...threads,
+      }).map(([commentId, value]) => {
+        const existing = currentThreads[commentId];
+        return [
+          commentId,
+          {
+            lastSeenReplyCount: Math.max(existing?.lastSeenReplyCount ?? 0, value.lastSeenReplyCount),
+            autoFollowed: (existing?.autoFollowed ?? false) || value.autoFollowed,
+          },
+        ];
+      }),
+    );
+  }
+
+  return merged;
+}
+
 function nextFeedInteraction(
   current: Record<string, FeedInteraction>,
   marketSlug: string,
@@ -335,6 +423,7 @@ function normalizePhone(value: string) {
 function accountSnapshotToState(snapshot: AccountSnapshot) {
   return {
     isSignedIn: true,
+    isAdmin: snapshot.user.isAdmin,
     name: snapshot.user.firstName,
     phone: snapshot.user.mpesaPhone ?? snapshot.user.phone,
     mpesaVerified: snapshot.user.mpesaVerified,
@@ -384,6 +473,13 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [feedInteractions, setFeedInteractions] = useState<Record<string, FeedInteraction>>(
     () => loadStoredFeedInteractions()
   );
+  const [commentThreadFollows, setCommentThreadFollows] = useState<
+    Record<string, Record<string, CommentThreadFollow>>
+  >(() => loadStoredCommentThreadFollows());
+  const [commentThreadNotifications, setCommentThreadNotifications] = useState<
+    CommentThreadNotificationItem[]
+  >([]);
+  const [portfolioOrders, setPortfolioOrders] = useState<PortfolioOrdersResponse | null>(null);
   const [isSyncingAccount, setIsSyncingAccount] = useState(true);
   const [accountSheetView, setAccountSheetView] = useState<AccountSheetView>("closed");
   const [showWhatsAppPrompt, setShowWhatsAppPrompt] = useState(false);
@@ -396,6 +492,20 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [isWalletActivityLoading, setIsWalletActivityLoading] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
   const hasSyncedFeedInteractionsRef = useRef(false);
+  const hasSyncedCommentThreadFollowsRef = useRef(false);
+  const refreshCommentThreadNotifications = useCallback(async () => {
+    if (!state.isSignedIn) {
+      setCommentThreadNotifications([]);
+      return;
+    }
+
+    try {
+      const payload = await fetchCommentThreadNotifications();
+      setCommentThreadNotifications(payload.items);
+    } catch {
+      setCommentThreadNotifications([]);
+    }
+  }, [state.isSignedIn]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -502,6 +612,85 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }, [feedInteractions, isHydrated]);
 
   useEffect(() => {
+    if (!isHydrated || !state.isSignedIn) {
+      hasSyncedCommentThreadFollowsRef.current = false;
+      return;
+    }
+
+    if (hasSyncedCommentThreadFollowsRef.current) {
+      return;
+    }
+
+    hasSyncedCommentThreadFollowsRef.current = true;
+    let isCancelled = false;
+
+    async function syncCommentThreads() {
+      try {
+        const localItems = Object.entries(commentThreadFollows).flatMap(([marketSlug, threads]) =>
+          Object.entries(threads).map(([commentId, follow]) => ({
+            marketSlug,
+            commentId,
+            lastSeenReplyCount: follow.lastSeenReplyCount,
+            autoFollowed: follow.autoFollowed,
+          })),
+        );
+
+        const payload =
+          localItems.length > 0
+            ? await syncCommentThreadFollowsRequest({ items: localItems })
+            : await fetchCommentThreadFollows();
+        if (isCancelled) {
+          return;
+        }
+
+        const incoming = payload.items.reduce<Record<string, Record<string, CommentThreadFollow>>>(
+          (result, item) => ({
+            ...result,
+            [item.marketSlug]: {
+              ...(result[item.marketSlug] ?? {}),
+              [item.commentId]: {
+                lastSeenReplyCount: item.lastSeenReplyCount,
+                autoFollowed: item.autoFollowed,
+              },
+            },
+          }),
+          {},
+        );
+        setCommentThreadFollows((current) => mergeCommentThreadFollows(current, incoming));
+        await refreshCommentThreadNotifications();
+      } catch {
+        return;
+      }
+    }
+
+    void syncCommentThreads();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [commentThreadFollows, isHydrated, refreshCommentThreadNotifications, state.isSignedIn]);
+
+  useEffect(() => {
+    if (!state.isSignedIn) {
+      setCommentThreadNotifications([]);
+      return;
+    }
+
+    void refreshCommentThreadNotifications();
+  }, [refreshCommentThreadNotifications, state.isSignedIn]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      "sokoodds.comment-thread-follows",
+      JSON.stringify(commentThreadFollows),
+    );
+  }, [commentThreadFollows, isHydrated]);
+
+  useEffect(() => {
     if (!isHydrated) {
       return;
     }
@@ -587,6 +776,28 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     }
   }, [state.isSignedIn]);
 
+  const refreshPortfolioOrders = useCallback(async () => {
+    if (!state.isSignedIn) {
+      setPortfolioOrders(null);
+      return;
+    }
+
+    try {
+      const payload = await fetchPortfolioOrders();
+      setPortfolioOrders(payload);
+      setState((current) => ({
+        ...current,
+        ...accountSnapshotToState(payload.account)
+      }));
+    } catch {
+      setPortfolioOrders(null);
+    }
+  }, [state.isSignedIn]);
+
+  useEffect(() => {
+    void refreshPortfolioOrders();
+  }, [refreshPortfolioOrders]);
+
   const value = useMemo<OnboardingContextValue>(
     () => ({
       state,
@@ -594,6 +805,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       recentMarketSlugs,
       notificationPreferences,
       feedInteractions,
+      commentThreadFollows,
+      commentThreadNotifications,
+      portfolioOrders,
       isHydrated,
       isSyncingAccount,
       accountSheetView,
@@ -805,6 +1019,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
           walletBalanceKes: Number(result.payload.available_balance),
           reservedBalanceKes: Number(result.payload.reserved_balance)
         }));
+        await refreshPortfolioOrders();
 
         return {
           orderId: result.payload.order_id,
@@ -845,6 +1060,82 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
           [key]: value
         }));
       },
+      followCommentThread: (marketSlug, commentId, replyCount, autoFollowed = false) => {
+        setCommentThreadFollows((current) => {
+          const next = mergeCommentThreadFollows(current, {
+            [marketSlug]: {
+              [commentId]: {
+                lastSeenReplyCount: replyCount,
+                autoFollowed,
+              },
+            },
+          });
+          return next;
+        });
+        if (state.isSignedIn) {
+          void upsertCommentThreadFollowRequest({
+            marketSlug,
+            commentId,
+            lastSeenReplyCount: replyCount,
+            autoFollowed,
+          })
+            .then(() => refreshCommentThreadNotifications())
+            .catch(() => undefined);
+        }
+      },
+      unfollowCommentThread: (marketSlug, commentId) => {
+        setCommentThreadFollows((current) => {
+          const marketThreads = { ...(current[marketSlug] ?? {}) };
+          delete marketThreads[commentId];
+          if (!Object.keys(marketThreads).length) {
+            const next = { ...current };
+            delete next[marketSlug];
+            return next;
+          }
+          return {
+            ...current,
+            [marketSlug]: marketThreads,
+          };
+        });
+        if (state.isSignedIn) {
+          void deleteCommentThreadFollowRequest({ marketSlug, commentId })
+            .then(() => refreshCommentThreadNotifications())
+            .catch(() => undefined);
+        }
+      },
+      markCommentThreadSeen: (marketSlug, commentId, replyCount) => {
+        setCommentThreadFollows((current) => {
+          const existing = current[marketSlug]?.[commentId];
+          if (!existing) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [marketSlug]: {
+              ...(current[marketSlug] ?? {}),
+              [commentId]: {
+                ...existing,
+                lastSeenReplyCount: replyCount,
+              },
+            },
+          };
+        });
+        if (state.isSignedIn) {
+          const existing = commentThreadFollows[marketSlug]?.[commentId];
+          if (existing) {
+            void upsertCommentThreadFollowRequest({
+              marketSlug,
+              commentId,
+              lastSeenReplyCount: replyCount,
+              autoFollowed: existing.autoFollowed,
+            })
+              .then(() => refreshCommentThreadNotifications())
+              .catch(() => undefined);
+          }
+        }
+      },
+      refreshPortfolioOrders,
       dismissWhatsAppPrompt: () => {
         setState((current) => ({
           ...current,
@@ -867,12 +1158,17 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       isHydrated,
       isSyncingAccount,
       refreshWalletActivity,
+      refreshCommentThreadNotifications,
+      refreshPortfolioOrders,
       showWhatsAppPrompt,
       state,
       watchlist,
       recentMarketSlugs,
       notificationPreferences,
       feedInteractions,
+      commentThreadFollows,
+      commentThreadNotifications,
+      portfolioOrders,
       verificationState,
       depositState,
       withdrawalState,
@@ -901,6 +1197,7 @@ function accountSnapshotToStateCleared() {
     phone: "",
     mpesaVerified: false,
     kycStatus: "not_started",
+    isAdmin: false,
     walletBalanceKes: 0,
     reservedBalanceKes: 0
   };
@@ -943,10 +1240,10 @@ function WhatsAppPrompt() {
           <span>SokoOdds alerts</span>
         </div>
         <div className="dialog-pill">Market alerts</div>
-        <h2>Get SokoOdds market alerts on WhatsApp.</h2>
+        <h2>Get East Africa's premier market alerts on WhatsApp.</h2>
         <p>
-          Get pause notices, settlement updates, and new Kenya-first market drops without digging
-          through the app.
+          Get pause notices, settlement updates, and fresh market drops from across East Africa
+          without digging through the app.
         </p>
 
         <div className="dialog-feature">
@@ -1045,10 +1342,10 @@ function AccountSheet() {
         {accountSheetView === "account" ? (
           <>
             <div className="dialog-pill">Start in under 30 seconds</div>
-            <h2>Create your SokoOdds trading profile.</h2>
+            <h2>Create your East Africa event trading profile.</h2>
             <p>
               Keep the first step light: name, M-Pesa number, then a small verification payment so
-              payouts land on the right phone.
+              your prediction wallet is ready to predict, trade, and win.
             </p>
 
             <div className="dialog-form">

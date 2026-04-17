@@ -9,7 +9,12 @@ function buildUniquePhone() {
 test.beforeEach(async ({ page }) => {
   await page.context().clearCookies();
   await page.addInitScript(() => {
+    if (window.sessionStorage.getItem("sokoodds.e2e.storage-cleared") === "true") {
+      return;
+    }
+
     window.localStorage.clear();
+    window.sessionStorage.setItem("sokoodds.e2e.storage-cleared", "true");
   });
 });
 
@@ -118,6 +123,35 @@ test("markets page stays feed-first and shows the expanded launch catalogue", as
   ).toBeVisible();
 });
 
+test("markets page hydrates cleanly from persisted personalization state", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "sokoodds.feed-interactions",
+      JSON.stringify({
+        "gor-mahia-afc-leopards-april-derby": {
+          viewedCount: 4,
+          pausedCount: 2,
+          openedCount: 1,
+          lastInteractedAt: "2026-03-29T18:30:00.000Z"
+        }
+      })
+    );
+    window.localStorage.setItem(
+      "sokoodds.discovery.streak",
+      JSON.stringify({
+        count: 5,
+        lastCheckIn: "2026-03-29"
+      })
+    );
+  });
+
+  await page.goto("/markets");
+
+  await expect(page.getByTestId("for-you-streak")).toContainText("5 days");
+  await expect(page.getByTestId("for-you-ranking-notes")).toContainText("You keep viewing this in the feed");
+  await expect(page.getByTestId("for-you-hub")).toBeVisible();
+});
+
 test("market board filters in place by category", async ({ page }) => {
   await page.goto("/markets");
   const boardGrid = page.getByTestId("market-board-grid");
@@ -216,12 +250,12 @@ test("major nav and account routes stay reachable from the primary shell", async
 
   await page.goto("/account");
   await expect(page.getByRole("heading", { name: "Open the part of SokoOdds you need next." })).toBeVisible();
-  await page.getByRole("link", { name: /Open Cash/i }).click();
+  await page.getByTestId("account-link-cash").click();
   await expect(page).toHaveURL(/\/cash$/);
   await expect(page.getByTestId("cash-signin-required")).toBeVisible();
 
   await page.goto("/account");
-  await page.getByRole("link", { name: /Open Portfolio/i }).click();
+  await page.getByTestId("account-link-portfolio").click();
   await expect(page).toHaveURL(/\/portfolio$/);
   await expect(page.getByTestId("portfolio-signin-required")).toBeVisible();
 
@@ -271,6 +305,213 @@ test("first-time account setup can reach the M-Pesa verification success state",
 
   await expect(page.getByTestId("account-wallet-button")).toContainText("M-Pesa ready");
   await expect(page.getByTestId("account-wallet-button")).toContainText("Ksh 5");
+});
+
+test("signed-in market detail can post, reply to, and like comments through the live API", async ({
+  page
+}) => {
+  const phone = buildUniquePhone();
+  const commentBody = `Comment from Playwright ${Date.now()}`;
+  const replyBody = `Reply from Playwright ${Date.now()}`;
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Bryan");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+
+  const socialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  await socialSection.scrollIntoViewIfNeeded();
+  const commentInput = socialSection.locator(".comment-compose input").first();
+  await commentInput.scrollIntoViewIfNeeded();
+  await expect(commentInput).toHaveAttribute("placeholder", "Add a comment...");
+  await commentInput.fill(commentBody);
+  await socialSection.getByRole("button", { name: "Post" }).click();
+
+  const createdThread = socialSection.locator(".comment-card", { hasText: commentBody }).first();
+  await expect(createdThread).toBeVisible();
+  await expect(createdThread).toContainText("Bryan");
+  await expect(
+    createdThread.getByText("Following because you posted here", { exact: true })
+  ).toBeVisible();
+
+  await createdThread.getByRole("button", { name: "Reply" }).click();
+  await createdThread.getByPlaceholder("Write a reply...").fill(replyBody);
+  await createdThread.getByRole("button", { name: "Reply" }).last().click();
+
+  const createdReply = createdThread.locator(".comment-card--reply", { hasText: replyBody }).first();
+  await expect(createdReply).toBeVisible();
+
+  await createdReply.getByRole("button", { name: "Like" }).click();
+  await expect(createdReply.getByRole("button", { name: "Liked" })).toBeVisible();
+  await expect(createdReply).toContainText("1 likes");
+
+  await page.reload();
+  await expect(page.locator(".comment-card", { hasText: commentBody }).first()).toBeVisible();
+  await expect(page.locator(".comment-card--reply", { hasText: replyBody }).first()).toBeVisible();
+});
+
+test("followed threads show live unread replies and can be caught up", async ({
+  browser,
+  page,
+}) => {
+  const marketUrl = "/markets/nairobi-governor-bill-sign-before-june";
+  const baseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+  const authorPhone = buildUniquePhone();
+  const responderPhone = buildUniquePhone();
+  const commentBody = `Thread follow root ${Date.now()}`;
+  const replyBody = `Thread follow reply ${Date.now()}`;
+
+  await page.goto(marketUrl);
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Bryan");
+  await page.getByLabel("M-Pesa number").fill(authorPhone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000,
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+
+  const socialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  const commentInput = socialSection.locator(".comment-compose input").first();
+  await commentInput.scrollIntoViewIfNeeded();
+  await commentInput.fill(commentBody);
+  await socialSection.getByRole("button", { name: "Post" }).click();
+
+  const createdThread = socialSection.locator(".comment-card", { hasText: commentBody }).first();
+  await expect(createdThread).toBeVisible();
+  await expect(page.getByTestId("comment-follow-rail")).toContainText("Auto-following because you posted here");
+
+  const responderContext = await browser.newContext();
+  const responderPage = await responderContext.newPage();
+
+  try {
+    await responderPage.goto(`${baseUrl}${marketUrl}`);
+    await responderPage.getByRole("button", { name: "Maybe later" }).click();
+    await responderPage.getByRole("button", { name: "Create account to trade" }).click();
+    await responderPage.getByLabel("First name").fill("Nia");
+    await responderPage.getByLabel("M-Pesa number").fill(responderPhone);
+    await responderPage.getByRole("button", { name: "Continue to wallet setup" }).click();
+    await responderPage.getByRole("button", { name: "Skip for now" }).click();
+
+    const responderSocialSection = responderPage
+      .locator(".market-tab-shell", { hasText: "Comments (" })
+      .first();
+    const responderThread = responderSocialSection
+      .locator(".comment-card", { hasText: commentBody })
+      .first();
+    await responderThread.scrollIntoViewIfNeeded();
+    await responderThread.getByRole("button", { name: "Reply" }).click();
+    await responderThread.getByPlaceholder("Write a reply...").fill(replyBody);
+    await responderThread.getByRole("button", { name: "Reply" }).last().click();
+    await expect(
+      responderThread.locator(".comment-card--reply", { hasText: replyBody }).first(),
+    ).toBeVisible();
+  } finally {
+    await responderContext.close();
+  }
+
+  await page.reload();
+
+  const reloadedSocialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  const followedRail = page.getByTestId("comment-follow-rail");
+  const followedThreadChip = followedRail.locator(".comment-follow-chip", { hasText: commentBody }).first();
+  await expect(reloadedSocialSection).toBeVisible();
+  await reloadedSocialSection.scrollIntoViewIfNeeded();
+  await expect(page.getByTestId("comment-thread-alert")).toContainText("1 new thread update");
+  await expect(followedThreadChip).toContainText("1 unread reply");
+  await expect(followedThreadChip).toContainText("Latest by Nia");
+  await followedThreadChip.getByRole("button", { name: "Catch up" }).click();
+  await expect(page.getByTestId("comment-thread-alert")).toHaveCount(0);
+  await expect(followedThreadChip).toContainText("Auto-following because you posted here");
+
+  await page.reload();
+  await expect(page.getByTestId("comment-thread-alert")).toHaveCount(0);
+  await expect(
+    page.getByTestId("comment-follow-rail").locator(".comment-follow-chip", { hasText: commentBody }).first(),
+  ).toContainText("Auto-following because you posted here");
+});
+
+test("for-you thread updates stay aligned with live followed replies", async ({
+  browser,
+  page,
+}) => {
+  const marketUrl = "/markets/nairobi-governor-bill-sign-before-june";
+  const authorPhone = buildUniquePhone();
+  const responderPhone = buildUniquePhone();
+  const commentBody = `For you thread root ${Date.now()}`;
+  const replyBody = `For you thread reply ${Date.now()}`;
+  const baseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+
+  await page.goto(marketUrl);
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Brian");
+  await page.getByLabel("M-Pesa number").fill(authorPhone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000,
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+
+  const socialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  const commentInput = socialSection.locator(".comment-compose input").first();
+  await commentInput.scrollIntoViewIfNeeded();
+  await commentInput.fill(commentBody);
+  await socialSection.getByRole("button", { name: "Post" }).click();
+  await expect(socialSection.locator(".comment-card", { hasText: commentBody }).first()).toBeVisible();
+
+  const responderContext = await browser.newContext();
+  const responderPage = await responderContext.newPage();
+
+  try {
+    await responderPage.goto(`${baseUrl}${marketUrl}`);
+    await responderPage.getByRole("button", { name: "Maybe later" }).click();
+    await responderPage.getByRole("button", { name: "Create account to trade" }).click();
+    await responderPage.getByLabel("First name").fill("Amina");
+    await responderPage.getByLabel("M-Pesa number").fill(responderPhone);
+    await responderPage.getByRole("button", { name: "Continue to wallet setup" }).click();
+    await responderPage.getByRole("button", { name: "Skip for now" }).click();
+
+    const responderThread = responderPage
+      .locator(".comment-card", { hasText: commentBody })
+      .first();
+    await responderThread.scrollIntoViewIfNeeded();
+    await responderThread.getByRole("button", { name: "Reply" }).click();
+    await responderThread.getByPlaceholder("Write a reply...").fill(replyBody);
+    await responderThread.getByRole("button", { name: "Reply" }).last().click();
+    await expect(
+      responderThread.locator(".comment-card--reply", { hasText: replyBody }).first(),
+    ).toBeVisible();
+  } finally {
+    await responderContext.close();
+  }
+
+  await page.goto("/markets");
+
+  const threadUpdates = page.getByTestId("for-you-thread-updates");
+  await expect(threadUpdates).toContainText("1 reply alert");
+  await expect(threadUpdates).toContainText(commentBody);
+  await expect(threadUpdates).toContainText("Latest by Amina");
+  await expect(threadUpdates).toContainText("1 unread");
+  await threadUpdates.getByRole("button", { name: "Catch up" }).click();
+  await expect(threadUpdates).toContainText("No unread replies");
+
+  await page.reload();
+  await expect(page.getByTestId("for-you-thread-updates")).toContainText("No unread replies");
 });
 
 test("a verified first-time wallet can place the sample order and move funds into reserve", async ({
@@ -424,7 +665,9 @@ test("an allowlisted admin can approve a pending KYC profile from the web review
   await page.getByLabel("First name").fill("Admin");
   await page.getByLabel("M-Pesa number").fill("0712345678");
   await page.getByRole("button", { name: "Continue to wallet setup" }).click();
-  await page.getByRole("button", { name: "Skip for now" }).click();
+  const adminDialogDismissButton = page.locator(".dialog-actions button").last();
+  await adminDialogDismissButton.scrollIntoViewIfNeeded();
+  await adminDialogDismissButton.click();
 
   await expect(page.getByTestId("admin-kyc-queue")).toContainText("Bryan Bosire", {
     timeout: 5000
@@ -436,7 +679,13 @@ test("an allowlisted admin can approve a pending KYC profile from the web review
   await expect(applicantCard).toContainText("Bryan Bosire");
   await applicantCard.getByRole("button", { name: "Approve" }).click();
 
-  await expect(page.getByTestId("admin-kyc-queue")).not.toContainText(applicantPhone, {
+  await page.getByLabel("KYC queue status filters").getByRole("button", { name: "approved" }).click();
+  await expect
+    .poll(async () => page.getByTestId("admin-kyc-board").textContent(), {
+      timeout: 5000,
+    })
+    .toContain(applicantPhone);
+  await expect(page.getByTestId("admin-kyc-board")).toContainText("approved", {
     timeout: 5000
   });
 });
@@ -489,6 +738,96 @@ test("an allowlisted admin can inspect withdrawal support activity from the web 
   await expect(page.getByTestId("admin-support-queue")).toContainText(customerPhone);
 });
 
+test("an allowlisted admin can hide and restore a live market comment from the web queue", async ({
+  page
+}) => {
+  const phone = buildUniquePhone();
+  const commentBody = `Moderation candidate ${Date.now()}`;
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Bryan");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+
+  const socialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  const commentInput = socialSection.locator(".comment-compose input").first();
+  await commentInput.scrollIntoViewIfNeeded();
+  await commentInput.fill(commentBody);
+  await socialSection.getByRole("button", { name: "Post" }).click();
+  await expect(socialSection.locator(".comment-card", { hasText: commentBody }).first()).toBeVisible();
+
+  await page.context().clearCookies();
+  await page.addInitScript(() => {
+    window.localStorage.clear();
+  });
+
+  await page.goto("/admin/markets");
+
+  await expect(page.getByTestId("admin-market-comments-signin-required")).toBeVisible();
+  await page.getByRole("button", { name: "Sign in as admin" }).click();
+  await page.getByLabel("First name").fill("Admin");
+  await page.getByLabel("M-Pesa number").fill("0712345678");
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await page.getByTestId("admin-market-comments-board").isVisible().catch(() => false)) ||
+        (await page.locator(".dialog-actions button").count()) > 0,
+      { timeout: 5000 }
+    )
+    .toBe(true);
+  if (!(await page.getByTestId("admin-market-comments-board").isVisible().catch(() => false))) {
+    await page.locator(".dialog-actions button").last().click();
+  }
+
+  await expect(page.getByTestId("admin-market-comments-board")).toBeVisible({ timeout: 5000 });
+  const visibleItem = page
+    .getByTestId("admin-market-comments-item")
+    .filter({ hasText: commentBody })
+    .first();
+  await expect(visibleItem).toBeVisible({ timeout: 5000 });
+  await visibleItem.getByRole("button", { name: "Hide comment" }).click();
+
+  await page.getByLabel("Market comment queue status filters").getByRole("button", { name: "hidden" }).click();
+  const hiddenItem = page
+    .getByTestId("admin-market-comments-item")
+    .filter({ hasText: commentBody })
+    .first();
+  await expect(hiddenItem).toBeVisible({ timeout: 5000 });
+  await expect(hiddenItem).toContainText("hidden");
+
+  await page.goto(`/markets/nairobi-governor-bill-sign-before-june?refresh=${Date.now()}`);
+  const refreshedSocialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  await refreshedSocialSection.scrollIntoViewIfNeeded();
+  await expect(refreshedSocialSection.locator(".comment-card", { hasText: commentBody })).toHaveCount(0);
+
+  await page.goto("/admin/markets");
+  await page.getByLabel("Market comment queue status filters").getByRole("button", { name: "hidden" }).click();
+  const restoreItem = page
+    .getByTestId("admin-market-comments-item")
+    .filter({ hasText: commentBody })
+    .first();
+  await restoreItem.getByRole("button", { name: "Restore comment" }).click();
+
+  await page.getByLabel("Market comment queue status filters").getByRole("button", { name: "visible" }).click();
+  await expect(
+    page.getByTestId("admin-market-comments-item").filter({ hasText: commentBody }).first()
+  ).toBeVisible({ timeout: 5000 });
+
+  await page.goto(`/markets/nairobi-governor-bill-sign-before-june?refresh=${Date.now()}`);
+  const restoredSocialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  await restoredSocialSection.scrollIntoViewIfNeeded();
+  await expect(restoredSocialSection.locator(".comment-card", { hasText: commentBody }).first()).toBeVisible();
+});
+
 test("portfolio page asks signed-out users to authenticate", async ({ page }) => {
   await page.goto("/portfolio");
 
@@ -538,6 +877,46 @@ test("portfolio page shows wallet, KYC, and recent activity for a verified user"
   await expect(page.getByTestId("portfolio-orders")).toContainText("Nairobi mobility bill");
   await expect(page.getByTestId("portfolio-market-exposure")).toContainText("Nairobi mobility bill");
   await expect(page.getByTestId("portfolio-recent-prints")).toContainText("YES print");
+});
+
+test("submitted orders stay in sync across ticket, market detail, and portfolio", async ({
+  page
+}) => {
+  const phone = buildUniquePhone();
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Brian");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("dialog").getByRole("button", { name: "Add KES 500 via M-Pesa" }).click();
+  await expect(page.getByTestId("wallet-topup-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+
+  await page.getByRole("button", { name: /Buy \d+ YES shares/i }).click();
+
+  await expect(page.getByTestId("order-ticket-success")).toBeVisible();
+  await expect(page.getByText("1 live orders here").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Positions" }).click();
+  await expect(page.getByTestId("market-detail-positions")).toContainText("No live position yet");
+  await expect(page.getByTestId("market-detail-positions")).toContainText("1 orders");
+  await expect(page.getByTestId("market-detail-personalization")).toContainText("1 live orders here");
+
+  await page.goto("/portfolio");
+
+  await expect(page.getByTestId("portfolio-open-order-count")).toContainText("1 live");
+  await expect(page.getByTestId("portfolio-orders")).toContainText("Nairobi mobility bill");
+  await expect(page.getByTestId("portfolio-market-exposure")).toContainText("Nairobi mobility bill");
+  await expect(page.getByTestId("portfolio-reserved-order-value")).toContainText("Ksh 4.96");
 });
 
 test("markets for-you hub personalizes after wallet verification and check-in", async ({ page }) => {
@@ -669,17 +1048,182 @@ test("signed-in header routes and utility menu stay usable after wallet setup", 
   await expect(page).toHaveURL(/\/portfolio$/);
   await expect(page.getByTestId("portfolio-overview")).toBeVisible();
 
-  await page.getByRole("button", { name: "Deposit" }).click();
+  await page.getByTestId("account-wallet-button").getByRole("button", { name: "Deposit" }).click();
   await expect(page.getByRole("dialog")).toContainText("Verify your M-Pesa for instant withdrawals.");
   await page.getByRole("button", { name: "Back to market" }).click();
 
   await page.getByRole("link", { name: "Open account and product menu" }).click();
   await expect(page.getByRole("menu")).toBeVisible();
-  await page.getByRole("menuitem", { name: "Documentation" }).click();
+  await page.getByTestId("header-menu-action-documentation").click();
   await expect(page).toHaveURL(/\/docs$/);
 
   await page.getByRole("link", { name: "Open account and product menu" }).click();
   await expect(page.getByRole("menu")).toBeVisible();
-  await page.getByRole("menuitem", { name: "Help Center" }).click();
+  await page.getByTestId("header-menu-action-help-center").click();
   await expect(page).toHaveURL(/\/help$/);
+
+  await page.getByRole("link", { name: "Open account and product menu" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.getByTestId("header-menu-action-leaderboard").click();
+  await expect(page).toHaveURL(/\/leaderboard$/);
+});
+
+test("utility menu dark mode toggle persists across reloads", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", "dark");
+
+  await page.getByRole("link", { name: "Open account and product menu" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.getByRole("menuitem", { name: "Dark mode" }).click();
+
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await page.evaluate(() => window.localStorage.getItem("sokoodds.theme"))).toBe("dark");
+
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await page.evaluate(() => window.localStorage.getItem("sokoodds.theme"))).toBe("dark");
+});
+
+test("admin can hide and restore the latest reply from thread updates", async ({ page }) => {
+  await page.route("**/api/account/me", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        authenticated: true,
+        account: {
+          user: {
+            id: "admin-user",
+            firstName: "Admin",
+            phone: "0712345678",
+            mpesaPhone: "0712345678",
+            mpesaVerified: true,
+            kycStatus: "approved",
+            isAdmin: true
+          },
+          wallet: {
+            currency: "KES",
+            availableBalanceKes: "505.00",
+            reservedBalanceKes: "0.00"
+          }
+        }
+      })
+    });
+  });
+
+  await page.route("**/api/account/comment-threads/follows", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: [] })
+    });
+  });
+
+  await page.route("**/api/account/comment-threads/notifications", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            marketSlug: "cbk-cut-rate-before-september-end",
+            marketQuestion: "Will CBK cut rates before September ends?",
+            commentId: "comment-1",
+            commentAuthor: "Amina",
+            commentBody: "Watching the next MPC signal closely.",
+            unreadReplyCount: 2,
+            totalReplyCount: 3,
+            autoFollowed: true,
+            latestReplyCommentId: "reply-9",
+            latestReplyAuthor: "Brian",
+            latestReplyBody: "Treasury pressure looks stronger this week.",
+            latestReplyAt: "2026-04-09T09:30:00+03:00"
+          }
+        ]
+      })
+    });
+  });
+
+  await page.route("**/api/markets/cbk-cut-rate-before-september-end/comments/reply-9/hide", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "reply-9"
+      })
+    });
+  });
+
+  await page.route(
+    "**/api/markets/cbk-cut-rate-before-september-end/comments/reply-9/restore",
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "reply-9"
+        })
+      });
+    }
+  );
+
+  await page.goto("/markets");
+
+  const threadUpdates = page.getByTestId("for-you-thread-updates");
+  await expect(threadUpdates).toContainText("Will CBK cut rates before September ends?");
+  await expect(threadUpdates).toContainText("Hide latest reply");
+
+  await threadUpdates.getByRole("button", { name: "Hide latest reply" }).click();
+  await expect(threadUpdates).toContainText("Latest reply hidden");
+  await expect(threadUpdates).toContainText("Restore reply");
+
+  await threadUpdates.getByRole("button", { name: "Restore reply" }).click();
+  await expect(threadUpdates).toContainText("Hide latest reply");
+});
+
+test("admin can hide and restore a reply inline on market detail", async ({ page }) => {
+  const phone = "0712345678";
+  const commentBody = `Inline moderation comment ${Date.now()}`;
+  const replyBody = `Inline moderation reply ${Date.now()}`;
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Bryan");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+
+  const socialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
+  await socialSection.scrollIntoViewIfNeeded();
+  const commentInput = socialSection.locator(".comment-compose input").first();
+  await commentInput.fill(commentBody);
+  await socialSection.getByRole("button", { name: "Post" }).click();
+
+  const createdThread = socialSection.locator(".comment-card", { hasText: commentBody }).first();
+  await expect(createdThread).toBeVisible();
+
+  await createdThread.getByRole("button", { name: "Reply" }).click();
+  await createdThread.getByPlaceholder("Write a reply...").fill(replyBody);
+  await createdThread.getByRole("button", { name: "Reply" }).last().click();
+
+  const createdReply = createdThread.locator(".comment-card--reply", { hasText: replyBody }).first();
+  await expect(createdReply).toBeVisible();
+  await createdReply.getByRole("button", { name: "Hide reply" }).click();
+
+  await expect(createdThread).toContainText("Reply hidden");
+  await expect(createdThread).toContainText("Restore reply");
+  await expect(createdThread).not.toContainText(replyBody);
+
+  await createdThread.getByRole("button", { name: "Restore reply" }).click();
+  await expect(createdThread.locator(".comment-card--reply", { hasText: replyBody }).first()).toBeVisible();
+  await expect(createdThread.getByRole("button", { name: "Hide reply" }).first()).toBeVisible();
 });

@@ -84,7 +84,8 @@ def upgrade() -> None:
     op.create_index("ix_positions_user_id", "positions", ["user_id"])
     op.create_index("ix_positions_market_id", "positions", ["market_id"])
 
-    op.alter_column("orders", "filled_quantity", server_default=None)
+    with op.batch_alter_table("orders", recreate="auto") as batch_op:
+        batch_op.alter_column("filled_quantity", server_default=None)
 
 
 def downgrade() -> None:

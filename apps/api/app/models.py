@@ -4,7 +4,18 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -170,6 +181,70 @@ class Position(Base):
     )
 
 
+class MarketComment(Base):
+    __tablename__ = "market_comments"
+    __table_args__ = (
+        CheckConstraint("likes >= 0", name="ck_market_comments_likes_nonnegative"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    market_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("markets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    parent_comment_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    likes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hidden_by_user_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class MarketCommentLike(Base):
+    __tablename__ = "market_comment_likes"
+    __table_args__ = (
+        UniqueConstraint(
+            "comment_id",
+            "user_id",
+            name="uq_market_comment_likes_comment_user",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    comment_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("market_comments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class EngineState(Base):
     __tablename__ = "engine_state"
 
@@ -199,6 +274,31 @@ class UserFeedInteraction(Base):
     last_interacted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class UserCommentThreadFollow(Base):
+    __tablename__ = "user_comment_thread_follows"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "market_slug",
+            "comment_id",
+            name="uq_user_comment_thread_follows_user_market_comment",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    market_slug: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    comment_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    last_seen_reply_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    auto_followed: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

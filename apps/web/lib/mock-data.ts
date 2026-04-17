@@ -48,6 +48,8 @@ export type MarketComment = {
   ageLabel: string;
   body: string;
   likes: number;
+  parentCommentId?: string | null;
+  replies?: MarketComment[];
 };
 
 export type TopHolder = {

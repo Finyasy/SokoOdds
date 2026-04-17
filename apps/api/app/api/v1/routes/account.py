@@ -13,6 +13,11 @@ from app.schemas.account import (
     AdminKycReviewRequest,
     AdminWalletSupportItemResponse,
     AdminWalletSupportResponse,
+    CommentThreadFollowItemResponse,
+    CommentThreadFollowsResponse,
+    CommentThreadNotificationsResponse,
+    CommentThreadFollowSyncRequest,
+    CommentThreadFollowUpsertRequest,
     AdminWithdrawalReviewRequest,
     AuthOnboardRequest,
     AuthOnboardResponse,
@@ -38,11 +43,13 @@ from app.services.account_access import (
     AccountAccessService,
     AuthenticatedAccount,
     AuthenticationError,
+    IdempotencyConflictError,
     WalletFundingError,
     get_account_access_service,
     get_authenticated_account,
 )
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
 AccountServiceDep = Annotated[AccountAccessService, Depends(get_account_access_service)]
@@ -128,6 +135,95 @@ async def sync_feed_interactions(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
+@router.get(
+    "/comment-threads/follows",
+    status_code=status.HTTP_200_OK,
+    response_model=CommentThreadFollowsResponse,
+)
+async def get_comment_thread_follows(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> CommentThreadFollowsResponse:
+    try:
+        return await account_service.get_comment_thread_follows(user_id=account.user.id)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@router.get(
+    "/comment-threads/notifications",
+    status_code=status.HTTP_200_OK,
+    response_model=CommentThreadNotificationsResponse,
+)
+async def get_comment_thread_notifications(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> CommentThreadNotificationsResponse:
+    try:
+        return await account_service.get_comment_thread_notifications(user_id=account.user.id)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@router.post(
+    "/comment-threads/follows",
+    status_code=status.HTTP_200_OK,
+    response_model=CommentThreadFollowItemResponse,
+)
+async def upsert_comment_thread_follow(
+    payload: CommentThreadFollowUpsertRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> CommentThreadFollowItemResponse:
+    try:
+        return await account_service.upsert_comment_thread_follow(
+            user_id=account.user.id,
+            market_slug=payload.marketSlug,
+            comment_id=payload.commentId,
+            last_seen_reply_count=payload.lastSeenReplyCount,
+            auto_followed=payload.autoFollowed,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@router.delete("/comment-threads/follows", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_comment_thread_follow(
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+    market_slug: Annotated[str, Query(alias="marketSlug")],
+    comment_id: Annotated[str, Query(alias="commentId")],
+) -> Response:
+    try:
+        await account_service.delete_comment_thread_follow(
+            user_id=account.user.id,
+            market_slug=market_slug,
+            comment_id=comment_id,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/comment-threads/follows/sync",
+    status_code=status.HTTP_200_OK,
+    response_model=CommentThreadFollowsResponse,
+)
+async def sync_comment_thread_follows(
+    payload: CommentThreadFollowSyncRequest,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> CommentThreadFollowsResponse:
+    try:
+        return await account_service.sync_comment_thread_follows(
+            user_id=account.user.id,
+            payload=payload,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
 @router.post(
     "/wallet/verify-mpesa",
     status_code=status.HTTP_200_OK,
@@ -192,26 +288,29 @@ async def submit_kyc_profile(
 )
 async def initiate_wallet_deposit(
     payload: WalletDepositRequest,
+    request: Request,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     account: AuthenticatedAccountDep,
     account_service: AccountServiceDep,
-) -> WalletDepositResponse:
+) -> JSONResponse:
     try:
-        result = await account_service.initiate_wallet_deposit(
+        result = await account_service.submit_wallet_deposit(
             user_id=account.user.id,
+            route=str(request.url.path),
+            idempotency_key=idempotency_key,
             amount=Decimal(payload.amountKes),
         )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except AuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
-    return WalletDepositResponse(
-        status=result.status,
-        depositReference=result.deposit_reference,
-        requestedAmountKes=f"{result.requested_amount:.2f}",
-        checkoutRequestId=result.checkout_request_id,
-        customerMessage=result.customer_message,
-        account=result.account.to_response_model(),
+    return JSONResponse(
+        status_code=result.status_code,
+        content=result.response_body,
+        headers={"X-Idempotency-Status": result.idempotency_status},
     )
 
 
@@ -295,26 +394,29 @@ async def receive_wallet_deposit_callback(
 )
 async def initiate_wallet_withdrawal(
     payload: WalletWithdrawalRequest,
+    request: Request,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     account: AuthenticatedAccountDep,
     account_service: AccountServiceDep,
-) -> WalletWithdrawalResponse:
+) -> JSONResponse:
     try:
-        result = await account_service.initiate_wallet_withdrawal(
+        result = await account_service.submit_wallet_withdrawal(
             user_id=account.user.id,
+            route=str(request.url.path),
+            idempotency_key=idempotency_key,
             amount=Decimal(payload.amountKes),
         )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except AuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
-    return WalletWithdrawalResponse(
-        status=result.status,
-        withdrawalReference=result.withdrawal_reference,
-        requestedAmountKes=f"{result.requested_amount:.2f}",
-        reviewRequired=result.review_required,
-        customerMessage=result.customer_message,
-        account=result.account.to_response_model(),
+    return JSONResponse(
+        status_code=result.status_code,
+        content=result.response_body,
+        headers={"X-Idempotency-Status": result.idempotency_status},
     )
 
 
@@ -426,20 +528,32 @@ async def list_admin_wallet_activity(
 async def review_admin_wallet_withdrawal(
     withdrawal_id: str,
     payload: AdminWithdrawalReviewRequest,
+    request: Request,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     account: AuthenticatedAccountDep,
     account_service: AccountServiceDep,
-) -> AdminWalletSupportItemResponse:
+) -> JSONResponse:
     try:
-        return await account_service.review_withdrawal(
+        result = await account_service.submit_withdrawal_review(
             admin_user_id=account.user.id,
+            route=str(request.url.path),
+            idempotency_key=idempotency_key,
             withdrawal_id=withdrawal_id,
             decision=payload.decision,
             note=payload.note,
         )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except AuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except WalletFundingError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return JSONResponse(
+        status_code=result.status_code,
+        content=result.response_body,
+        headers={"X-Idempotency-Status": result.idempotency_status},
+    )
 
 
 @router.post("/wallet/withdraw/callback", status_code=status.HTTP_200_OK)

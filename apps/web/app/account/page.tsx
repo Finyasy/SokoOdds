@@ -19,10 +19,11 @@ export default function AccountPage() {
           <div className="cash-signin-card account-access-card">
             <div>
               <span className="section-kicker">Account</span>
-              <h1>Open the part of SokoOdds you need next.</h1>
+              <h1>Open the part of East Africa's premier prediction market you need next.</h1>
               <p>
-                This fallback menu keeps the key account destinations reachable even if the compact
-                header menu is unavailable in the current dev session.
+                This fallback menu keeps your key destinations reachable, from cash and portfolio
+                to docs and support, even if the compact header menu is unavailable in the current
+                dev session.
               </p>
             </div>
           </div>
@@ -30,7 +31,12 @@ export default function AccountPage() {
 
         <section className="portfolio-grid">
           {quickLinks.map((item) => (
-            <Link key={item.href} href={item.href} className="portfolio-card account-link-card">
+            <Link
+              key={item.href}
+              href={item.href}
+              className="portfolio-card account-link-card"
+              data-testid={`account-link${item.href.replaceAll("/", "-") || "-home"}`}
+            >
               <div className="portfolio-card__head">
                 <span className="market-chip">Open</span>
                 <strong>{item.label}</strong>

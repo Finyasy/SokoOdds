@@ -35,7 +35,8 @@ export function HeaderUtilityMenu() {
       return false;
     }
 
-    return window.localStorage.getItem("sokoodds.theme") === "dark";
+    return document.documentElement.dataset.theme === "dark"
+      || window.localStorage.getItem("sokoodds.theme") === "dark";
   });
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,6 +69,13 @@ export function HeaderUtilityMenu() {
   }, []);
 
   const menuActions: MenuAction[] = [
+    ...(state.isAdmin
+      ? [
+          { label: "Admin Markets", href: "/admin/markets" },
+          { label: "Admin KYC", href: "/admin/kyc" },
+          { label: "Admin Support", href: "/admin/support" }
+        ]
+      : []),
     { label: "Leaderboard", href: "/leaderboard" },
     { label: "Dark mode", meta: "Toggle" },
     { label: "Portfolio", href: "/portfolio" },
@@ -93,6 +101,10 @@ export function HeaderUtilityMenu() {
         openAccountSheet();
       }
     }
+  }
+
+  function getMenuActionTestId(label: string) {
+    return `header-menu-action-${label.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
   }
 
   return (
@@ -151,6 +163,7 @@ export function HeaderUtilityMenu() {
                   href={item.href}
                   className="header-menu__item"
                   role="menuitem"
+                  data-testid={getMenuActionTestId(item.label)}
                   onClick={() => setIsOpen(false)}
                 >
                   <span>{item.label}</span>
@@ -162,6 +175,7 @@ export function HeaderUtilityMenu() {
                   type="button"
                   className="header-menu__item"
                   role="menuitem"
+                  data-testid={getMenuActionTestId(item.label)}
                   onClick={() => handlePrimaryAction(item.label)}
                 >
                   <span>{item.label}</span>

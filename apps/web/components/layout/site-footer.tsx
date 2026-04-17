@@ -42,9 +42,9 @@ export function SiteFooter() {
           <div className="site-footer__mark">
             <SokoOddsLogo compact />
           </div>
-          <p className="site-footer__tagline">Kenya-first event markets</p>
+          <p className="site-footer__tagline">East Africa's Premier Prediction Market</p>
           <p className="site-footer__lede">
-            Cleaner pricing, shorter labels, and M-Pesa-native wallets.
+            Predict smarter. Trade the moments that move East Africa.
           </p>
           <div className="site-footer__social-icons">
             <Link href="/help" aria-label="Email"><EmailIcon /></Link>

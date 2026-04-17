@@ -9,9 +9,9 @@ export default function HelpPage() {
       <main className="site-shell page-stack">
         <section className="page-hero">
           <span className="page-hero__eyebrow market-chip">Help Center</span>
-          <h1>Funding, verification, payouts, and settlement help.</h1>
+          <h1>Help for funding, verification, payouts, and event settlement.</h1>
           <p>
-            Find the fastest path for M-Pesa wallet setup, KES 5 verification, reserved-balance
+            Find the fastest path through M-Pesa wallet setup, KES 5 verification, reserved-balance
             questions, and settlement-source guidance.
           </p>
           <div className="filter-row">

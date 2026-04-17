@@ -7,10 +7,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from app.core.idempotency import IdempotencyConflictError, IdempotentResponse
 from app.core.config import settings
 from app.main import app
 from app.models import User, UserSession, Wallet
-from app.schemas.account import FeedInteractionSyncRequest
+from app.schemas.account import CommentThreadFollowSyncRequest, FeedInteractionSyncRequest
 from app.services.account_access import (
     AuthenticatedAccount,
     get_account_access_service,
@@ -22,6 +23,10 @@ from fastapi.testclient import TestClient
 @dataclass
 class FakeAccountService:
     callback_payloads: list[dict[str, object]] = field(default_factory=lambda: [])
+    idempotency_records: dict[
+        tuple[str, str, str],
+        tuple[dict[str, object], IdempotentResponse],
+    ] = field(default_factory=dict)
 
     async def onboard_account(self, *, first_name: str, phone: str):
         return type(
@@ -128,6 +133,23 @@ class FakeAccountService:
             },
         )()
 
+    async def submit_wallet_deposit(
+        self,
+        *,
+        user_id: str,
+        route: str,
+        idempotency_key: str,
+        amount: Decimal,
+    ) -> IdempotentResponse:
+        payload = {"amountKes": f"{amount:.2f}"}
+        return await self._submit_idempotent(
+            user_id=user_id,
+            route=route,
+            idempotency_key=idempotency_key,
+            payload=payload,
+            response_factory=lambda: self._build_deposit_idempotent_response(user_id, amount),
+        )
+
     async def get_deposit_status(self, *, user_id: str, deposit_reference: str):
         assert user_id == "user-1"
         assert deposit_reference == "mpesa-topup-1"
@@ -180,6 +202,23 @@ class FakeAccountService:
                 ).to_snapshot(),
             },
         )()
+
+    async def submit_wallet_withdrawal(
+        self,
+        *,
+        user_id: str,
+        route: str,
+        idempotency_key: str,
+        amount: Decimal,
+    ) -> IdempotentResponse:
+        payload = {"amountKes": f"{amount:.2f}"}
+        return await self._submit_idempotent(
+            user_id=user_id,
+            route=route,
+            idempotency_key=idempotency_key,
+            payload=payload,
+            response_factory=lambda: self._build_withdrawal_idempotent_response(user_id, amount),
+        )
 
     async def get_withdrawal_status(self, *, user_id: str, withdrawal_reference: str):
         assert user_id == "user-1"
@@ -377,6 +416,96 @@ class FakeAccountService:
             },
         )()
 
+    async def get_comment_thread_follows(self, *, user_id: str):
+        assert user_id == "user-1"
+        return type(
+            "CommentThreadFollows",
+            (),
+            {
+                "items": [
+                    {
+                        "marketSlug": "cbk-cut-rate-before-september-end",
+                        "commentId": "comment-1",
+                        "lastSeenReplyCount": 2,
+                        "autoFollowed": True,
+                    }
+                ]
+            },
+        )()
+
+    async def get_comment_thread_notifications(self, *, user_id: str):
+        assert user_id == "user-1"
+        return type(
+            "CommentThreadNotifications",
+            (),
+            {
+                "items": [
+                    {
+                        "marketSlug": "cbk-cut-rate-before-september-end",
+                        "marketQuestion": "Will CBK cut rates before September ends?",
+                        "commentId": "comment-1",
+                        "commentAuthor": "Amina",
+                        "commentBody": "Watching the next MPC signal closely.",
+                        "unreadReplyCount": 2,
+                        "totalReplyCount": 3,
+                        "autoFollowed": True,
+                        "latestReplyCommentId": "reply-9",
+                        "latestReplyAuthor": "Brian",
+                        "latestReplyBody": "Treasury pressure looks stronger this week.",
+                        "latestReplyAt": datetime.now(UTC).isoformat(),
+                    }
+                ]
+            },
+        )()
+
+    async def upsert_comment_thread_follow(
+        self,
+        *,
+        user_id: str,
+        market_slug: str,
+        comment_id: str,
+        last_seen_reply_count: int,
+        auto_followed: bool,
+    ):
+        assert user_id == "user-1"
+        return type(
+            "CommentThreadFollowItem",
+            (),
+            {
+                "marketSlug": market_slug,
+                "commentId": comment_id,
+                "lastSeenReplyCount": last_seen_reply_count,
+                "autoFollowed": auto_followed,
+            },
+        )()
+
+    async def sync_comment_thread_follows(
+        self, *, user_id: str, payload: CommentThreadFollowSyncRequest
+    ):
+        assert user_id == "user-1"
+        return type(
+            "CommentThreadFollows",
+            (),
+            {
+                "items": [
+                    {
+                        "marketSlug": payload.items[0].marketSlug,
+                        "commentId": payload.items[0].commentId,
+                        "lastSeenReplyCount": payload.items[0].lastSeenReplyCount,
+                        "autoFollowed": payload.items[0].autoFollowed,
+                    }
+                ]
+            },
+        )()
+
+    async def delete_comment_thread_follow(
+        self, *, user_id: str, market_slug: str, comment_id: str
+    ):
+        assert user_id == "user-1"
+        assert market_slug == "cbk-cut-rate-before-september-end"
+        assert comment_id == "comment-1"
+        return None
+
     async def get_kyc_profile(self, *, user_id: str):
         assert user_id == "user-1"
         return None
@@ -461,6 +590,7 @@ class FakeAccountService:
                         "mpesaPhone": "0796000000",
                         "mpesaVerified": True,
                         "kycStatus": "approved",
+                        "isAdmin": False,
                     },
                     "wallet": {
                         "currency": "KES",
@@ -544,6 +674,173 @@ class FakeAccountService:
             "reviewedByName": "Admin",
             "reviewDecision": "approved",
         }
+
+    async def submit_withdrawal_review(
+        self,
+        *,
+        admin_user_id: str,
+        route: str,
+        idempotency_key: str,
+        withdrawal_id: str,
+        decision: str,
+        note: str | None,
+    ) -> IdempotentResponse:
+        payload = {"decision": decision, "note": note}
+        return await self._submit_idempotent(
+            user_id=admin_user_id,
+            route=route,
+            idempotency_key=idempotency_key,
+            payload=payload,
+            response_factory=lambda: self._build_review_idempotent_response(
+                admin_user_id,
+                withdrawal_id,
+                decision,
+                note,
+            ),
+        )
+
+    async def _submit_idempotent(
+        self,
+        *,
+        user_id: str,
+        route: str,
+        idempotency_key: str,
+        payload: dict[str, object],
+        response_factory,
+    ) -> IdempotentResponse:
+        scope = (user_id, route, idempotency_key)
+        existing = self.idempotency_records.get(scope)
+        if existing is not None:
+            existing_payload, existing_response = existing
+            if existing_payload != payload:
+                raise IdempotencyConflictError(
+                    "This idempotency key was already used with a different payload."
+                )
+            return IdempotentResponse(
+                status_code=existing_response.status_code,
+                response_body=existing_response.response_body,
+                idempotency_status="replayed",
+            )
+
+        response = response_factory()
+        self.idempotency_records[scope] = (payload, response)
+        return response
+
+    def _build_deposit_idempotent_response(
+        self,
+        user_id: str,
+        amount: Decimal,
+    ) -> IdempotentResponse:
+        return IdempotentResponse(
+            status_code=200,
+            response_body={
+                "status": "completed",
+                "depositReference": "mpesa-topup-1",
+                "requestedAmountKes": f"{amount:.2f}",
+                "checkoutRequestId": "ws_CO_123",
+                "customerMessage": "M-Pesa prompt sent.",
+                "account": AuthenticatedAccount(
+                    user=User(
+                        id=user_id,
+                        first_name="Bryan",
+                        phone="0796851024",
+                        mpesa_phone="0796851024",
+                        kyc_status="approved",
+                        mpesa_verified_at=datetime.now(UTC),
+                    ),
+                    wallet=Wallet(
+                        user_id=user_id,
+                        currency="KES",
+                        available_balance=Decimal("505.00"),
+                        reserved_balance=Decimal("0.00"),
+                    ),
+                    session=UserSession(
+                        id="session-1",
+                        user_id=user_id,
+                        token_hash="hash",
+                        expires_at=datetime.now(UTC) + timedelta(days=30),
+                        last_seen_at=datetime.now(UTC),
+                        revoked_at=None,
+                    ),
+                )
+                .to_snapshot()
+                .to_response_model()
+                .model_dump(mode="json"),
+            },
+            idempotency_status="created",
+        )
+
+    def _build_withdrawal_idempotent_response(
+        self,
+        user_id: str,
+        amount: Decimal,
+    ) -> IdempotentResponse:
+        return IdempotentResponse(
+            status_code=200,
+            response_body={
+                "status": "completed",
+                "withdrawalReference": "mpesa-withdraw-1",
+                "requestedAmountKes": f"{amount:.2f}",
+                "reviewRequired": False,
+                "customerMessage": "M-Pesa withdrawal initiated.",
+                "account": AuthenticatedAccount(
+                    user=User(
+                        id=user_id,
+                        first_name="Bryan",
+                        phone="0796851024",
+                        mpesa_phone="0796851024",
+                        kyc_status="approved",
+                        mpesa_verified_at=datetime.now(UTC),
+                    ),
+                    wallet=Wallet(
+                        user_id=user_id,
+                        currency="KES",
+                        available_balance=Decimal("305.00"),
+                        reserved_balance=Decimal("0.00"),
+                    ),
+                    session=UserSession(
+                        id="session-1",
+                        user_id=user_id,
+                        token_hash="hash",
+                        expires_at=datetime.now(UTC) + timedelta(days=30),
+                        last_seen_at=datetime.now(UTC),
+                        revoked_at=None,
+                    ),
+                )
+                .to_snapshot()
+                .to_response_model()
+                .model_dump(mode="json"),
+            },
+            idempotency_status="created",
+        )
+
+    def _build_review_idempotent_response(
+        self,
+        _admin_user_id: str,
+        _withdrawal_id: str,
+        _decision: str,
+        _note: str | None,
+    ) -> IdempotentResponse:
+        return IdempotentResponse(
+            status_code=200,
+            response_body={
+                "id": "withdraw-1",
+                "userId": "user-2",
+                "firstName": "Amina",
+                "phone": "0796000000",
+                "kind": "withdrawal",
+                "status": "completed",
+                "title": "M-Pesa withdrawal",
+                "subtitle": "Payout completed to 0796000000.",
+                "amountKes": "2600.00",
+                "createdAt": datetime.now(UTC).isoformat(),
+                "updatedAt": datetime.now(UTC).isoformat(),
+                "reviewedAt": datetime.now(UTC).isoformat(),
+                "reviewedByName": "Admin",
+                "reviewDecision": "approved",
+            },
+            idempotency_status="created",
+        )
 
     async def process_stk_callback(self, *, callback_payload: dict[str, object]) -> None:
         self.callback_payloads.append(callback_payload)
@@ -801,6 +1098,7 @@ def test_admin_wallet_support_can_release_review_required_withdrawal() -> None:
     response = client.post(
         "/api/v1/admin/wallet/activity/withdraw-1/review",
         json={"decision": "approved"},
+        headers={"Idempotency-Key": "withdraw-review-1"},
     )
 
     assert response.status_code == 200
@@ -810,6 +1108,46 @@ def test_admin_wallet_support_can_release_review_required_withdrawal() -> None:
     assert payload["kind"] == "withdrawal"
     assert payload["reviewedByName"] == "Admin"
     assert payload["reviewDecision"] == "approved"
+    assert response.headers["X-Idempotency-Status"] == "created"
+
+
+def test_admin_wallet_review_replays_same_response_for_same_idempotency_key() -> None:
+    client = build_client()
+
+    first = client.post(
+        "/api/v1/admin/wallet/activity/withdraw-1/review",
+        json={"decision": "approved"},
+        headers={"Idempotency-Key": "withdraw-review-2"},
+    )
+    second = client.post(
+        "/api/v1/admin/wallet/activity/withdraw-1/review",
+        json={"decision": "approved"},
+        headers={"Idempotency-Key": "withdraw-review-2"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert second.headers["X-Idempotency-Status"] == "replayed"
+
+
+def test_admin_wallet_review_rejects_same_key_with_different_payload() -> None:
+    client = build_client()
+
+    first = client.post(
+        "/api/v1/admin/wallet/activity/withdraw-1/review",
+        json={"decision": "approved"},
+        headers={"Idempotency-Key": "withdraw-review-3"},
+    )
+    second = client.post(
+        "/api/v1/admin/wallet/activity/withdraw-1/review",
+        json={"decision": "rejected", "note": "duplicate"},
+        headers={"Idempotency-Key": "withdraw-review-3"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert "different payload" in second.json()["detail"]
 
 
 def test_me_returns_authenticated_account_snapshot() -> None:
@@ -828,6 +1166,7 @@ def test_wallet_deposit_returns_credit_shape() -> None:
     response = client.post(
         "/api/v1/wallet/deposit",
         json={"amountKes": "500.00"},
+        headers={"Idempotency-Key": "deposit-1"},
     )
 
     assert response.status_code == 200
@@ -836,6 +1175,46 @@ def test_wallet_deposit_returns_credit_shape() -> None:
     assert payload["requestedAmountKes"] == "500.00"
     assert payload["checkoutRequestId"] == "ws_CO_123"
     assert payload["account"]["wallet"]["availableBalanceKes"] == "505.00"
+    assert response.headers["X-Idempotency-Status"] == "created"
+
+
+def test_wallet_deposit_replays_same_response_for_same_idempotency_key() -> None:
+    client = build_client()
+
+    first = client.post(
+        "/api/v1/wallet/deposit",
+        json={"amountKes": "500.00"},
+        headers={"Idempotency-Key": "deposit-2"},
+    )
+    second = client.post(
+        "/api/v1/wallet/deposit",
+        json={"amountKes": "500.00"},
+        headers={"Idempotency-Key": "deposit-2"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert second.headers["X-Idempotency-Status"] == "replayed"
+
+
+def test_wallet_deposit_rejects_same_key_with_different_payload() -> None:
+    client = build_client()
+
+    first = client.post(
+        "/api/v1/wallet/deposit",
+        json={"amountKes": "500.00"},
+        headers={"Idempotency-Key": "deposit-3"},
+    )
+    second = client.post(
+        "/api/v1/wallet/deposit",
+        json={"amountKes": "250.00"},
+        headers={"Idempotency-Key": "deposit-3"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert "different payload" in second.json()["detail"]
 
 
 def test_wallet_deposit_status_returns_current_shape() -> None:
@@ -856,6 +1235,7 @@ def test_wallet_withdrawal_returns_current_shape() -> None:
     response = client.post(
         "/api/v1/wallet/withdraw",
         json={"amountKes": "200.00"},
+        headers={"Idempotency-Key": "withdraw-1"},
     )
 
     assert response.status_code == 200
@@ -864,6 +1244,46 @@ def test_wallet_withdrawal_returns_current_shape() -> None:
     assert payload["requestedAmountKes"] == "200.00"
     assert payload["reviewRequired"] is False
     assert payload["account"]["wallet"]["availableBalanceKes"] == "305.00"
+    assert response.headers["X-Idempotency-Status"] == "created"
+
+
+def test_wallet_withdrawal_replays_same_response_for_same_idempotency_key() -> None:
+    client = build_client()
+
+    first = client.post(
+        "/api/v1/wallet/withdraw",
+        json={"amountKes": "200.00"},
+        headers={"Idempotency-Key": "withdraw-2"},
+    )
+    second = client.post(
+        "/api/v1/wallet/withdraw",
+        json={"amountKes": "200.00"},
+        headers={"Idempotency-Key": "withdraw-2"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert second.headers["X-Idempotency-Status"] == "replayed"
+
+
+def test_wallet_withdrawal_rejects_same_key_with_different_payload() -> None:
+    client = build_client()
+
+    first = client.post(
+        "/api/v1/wallet/withdraw",
+        json={"amountKes": "200.00"},
+        headers={"Idempotency-Key": "withdraw-3"},
+    )
+    second = client.post(
+        "/api/v1/wallet/withdraw",
+        json={"amountKes": "150.00"},
+        headers={"Idempotency-Key": "withdraw-3"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert "different payload" in second.json()["detail"]
 
 
 def test_wallet_withdrawal_status_returns_current_shape() -> None:
@@ -925,6 +1345,89 @@ def test_sync_feed_interactions_returns_current_shape() -> None:
     payload = response.json()
     assert payload["items"][0]["marketSlug"] == "cbk-cut-rate-before-september-end"
     assert payload["items"][0]["viewedCount"] == 3
+
+
+def test_comment_thread_follows_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/comment-threads/follows")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["marketSlug"] == "cbk-cut-rate-before-september-end"
+    assert payload["items"][0]["commentId"] == "comment-1"
+    assert payload["items"][0]["lastSeenReplyCount"] == 2
+    assert payload["items"][0]["autoFollowed"] is True
+
+
+def test_comment_thread_notifications_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.get("/api/v1/comment-threads/notifications")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["marketSlug"] == "cbk-cut-rate-before-september-end"
+    assert payload["items"][0]["unreadReplyCount"] == 2
+    assert payload["items"][0]["latestReplyCommentId"] == "reply-9"
+    assert payload["items"][0]["latestReplyAuthor"] == "Brian"
+
+
+def test_upsert_comment_thread_follow_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/comment-threads/follows",
+        json={
+            "marketSlug": "cbk-cut-rate-before-september-end",
+            "commentId": "comment-1",
+            "lastSeenReplyCount": 4,
+            "autoFollowed": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["marketSlug"] == "cbk-cut-rate-before-september-end"
+    assert payload["commentId"] == "comment-1"
+    assert payload["lastSeenReplyCount"] == 4
+    assert payload["autoFollowed"] is False
+
+
+def test_sync_comment_thread_follows_returns_current_shape() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/comment-threads/follows/sync",
+        json={
+            "items": [
+                {
+                    "marketSlug": "cbk-cut-rate-before-september-end",
+                    "commentId": "comment-1",
+                    "lastSeenReplyCount": 5,
+                    "autoFollowed": True,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["marketSlug"] == "cbk-cut-rate-before-september-end"
+    assert payload["items"][0]["commentId"] == "comment-1"
+    assert payload["items"][0]["lastSeenReplyCount"] == 5
+    assert payload["items"][0]["autoFollowed"] is True
+
+
+def test_delete_comment_thread_follow_returns_no_content() -> None:
+    client = build_client()
+
+    response = client.delete(
+        "/api/v1/comment-threads/follows"
+        "?marketSlug=cbk-cut-rate-before-september-end&commentId=comment-1"
+    )
+
+    assert response.status_code == 204
 
 
 def test_wallet_deposit_callback_rejects_invalid_token() -> None:

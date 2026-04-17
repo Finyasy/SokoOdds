@@ -66,7 +66,7 @@ export function SiteHeader({
       return `Viewing ${currentCategory.toLowerCase()} board`;
     }
 
-    return "Kenya-first event markets";
+    return "East Africa's Premier Prediction Market";
   }
 
   function updateSearch(value: string) {

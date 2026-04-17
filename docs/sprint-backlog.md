@@ -78,7 +78,7 @@ Current shipped behavior:
 - homepage now leads with a discovery-first `All markets` feed instead of a large hero
 - homepage now uses a thin signal strip for `Trending now` and `Ending soon` before the main board instead of a promotional hero panel
 - shared card surfaces use a calmer ivory modular style with soft borders and glanceable YES/NO actions
-- the launch catalogue has been expanded so the homepage and market board feel populated without drifting away from Kenya-first categories
+- the launch catalogue has been expanded so the homepage and market board feel populated while still staying grounded in East Africa-relevant categories
 - category chips now filter in place on the board, and urgency now lives in the signal strip instead of repeating lower on the page
 - homepage search and top navigation now drive the same in-place discovery state as the market board
 - signal-strip shortcuts now focus the homepage board in place, and the active shortcut stays visible for focused boards such as `Trending politics` and `Ending soon economy`
@@ -107,6 +107,10 @@ Current shipped behavior:
 - `/admin/support` now includes a small triage layer for `Needs review`, `Reviewed`, and `Failed`, so payout ops can narrow the queue quickly without turning the page into a heavy case-management surface
 - the web app now includes a first `/portfolio` surface, so signed-in users can review wallet cash, reserved funds, KYC status, recent money movement, and open-order exposure outside the market-sheet overlay
 - the web app now includes an account-aware `/cash` surface, so funding, withdrawals, wallet readiness, and recent ledger activity can be reviewed outside the onboarding sheet as well
+- market detail now uses API-backed holders and durable market comments with likes, hide/restore moderation, and one-level replies
+- the web app now includes an admin market-comment review queue plus signed-in persistence for followed comment threads and catch-up state
+- the `For you` discovery surface now includes cross-market reply alerts for followed threads, backed by the account session
+- admins can now hide and restore replies directly inside the market-detail thread view without leaving the conversation
 
 Still pending in later sprints:
 

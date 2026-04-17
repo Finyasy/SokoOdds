@@ -30,7 +30,7 @@ export default async function MarketsPage({ searchParams }: MarketsPageProps) {
         kicker="Daily pulse"
         countQualifier="picked for you"
         markets={markets}
-        footerText="A Kenya-first board shaped to feel worth checking every morning, midday, and night."
+        footerText="Predict smarter, trade the moments that move East Africa, and come back to the board morning, midday, and night."
         footerHref="/markets/nairobi-governor-bill-sign-before-june"
         footerLabel="Open tonight's lead market"
         initialCategory={initialCategory}

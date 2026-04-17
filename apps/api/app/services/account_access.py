@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 from uuid import uuid4
 
 from app.core.auth import (
@@ -16,16 +17,26 @@ from app.core.auth import (
 )
 from app.core.config import settings
 from app.core.database import get_async_session
+from app.core.idempotency import (
+    IdempotencyConflictError,
+    IdempotentResponse,
+    build_idempotency_record,
+    get_idempotency_record,
+    make_request_hash,
+    replay_idempotent_response,
+)
 from app.integrations.daraja import B2CPayoutResult, DarajaConfigurationError, daraja_client
 from app.models import (
     Deposit,
     KycProfile,
     LedgerEntry,
     Market,
+    MarketComment,
     Order,
     Position,
     Trade,
     User,
+    UserCommentThreadFollow,
     UserFeedInteraction,
     UserSession,
     Wallet,
@@ -38,6 +49,11 @@ from app.schemas.account import (
     AdminKycQueueResponse,
     AdminWalletSupportItemResponse,
     AdminWalletSupportResponse,
+    CommentThreadFollowsResponse,
+    CommentThreadFollowItemResponse,
+    CommentThreadNotificationItemResponse,
+    CommentThreadNotificationsResponse,
+    CommentThreadFollowSyncRequest,
     FeedInteractionItemResponse,
     FeedInteractionsResponse,
     FeedInteractionSyncRequest,
@@ -59,6 +75,7 @@ from app.schemas.account import (
 from app.services.order_intake import quantize_money
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import desc, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_session)]
@@ -72,6 +89,7 @@ ACTIVE_ORDER_STATUSES = {
     "partially_filled",
 }
 FEED_INTERACTION_EVENT_TYPES = {"view", "pause", "open"}
+PAYMENT_IDEMPOTENCY_TTL = timedelta(hours=72)
 
 
 class AuthenticationError(Exception):
@@ -111,6 +129,38 @@ class B2CCallback:
 
 
 @dataclass(frozen=True)
+class CommentThreadNotificationItem:
+    market_slug: str
+    market_question: str
+    comment_id: str
+    comment_author: str
+    comment_body: str
+    unread_reply_count: int
+    total_reply_count: int
+    auto_followed: bool
+    latest_reply_comment_id: str | None
+    latest_reply_author: str | None
+    latest_reply_body: str | None
+    latest_reply_at: str | None
+
+    def to_response_model(self) -> CommentThreadNotificationItemResponse:
+        return CommentThreadNotificationItemResponse(
+            marketSlug=self.market_slug,
+            marketQuestion=self.market_question,
+            commentId=self.comment_id,
+            commentAuthor=self.comment_author,
+            commentBody=self.comment_body,
+            unreadReplyCount=self.unread_reply_count,
+            totalReplyCount=self.total_reply_count,
+            autoFollowed=self.auto_followed,
+            latestReplyCommentId=self.latest_reply_comment_id,
+            latestReplyAuthor=self.latest_reply_author,
+            latestReplyBody=self.latest_reply_body,
+            latestReplyAt=self.latest_reply_at,
+        )
+
+
+@dataclass(frozen=True)
 class AccountSnapshot:
     user_id: str
     first_name: str
@@ -118,6 +168,7 @@ class AccountSnapshot:
     mpesa_phone: str | None
     mpesa_verified: bool
     kyc_status: str
+    is_admin: bool
     currency: str
     available_balance: Decimal
     reserved_balance: Decimal
@@ -131,6 +182,7 @@ class AccountSnapshot:
                 mpesaPhone=self.mpesa_phone,
                 mpesaVerified=self.mpesa_verified,
                 kycStatus=self.kyc_status,
+                isAdmin=self.is_admin,
             ),
             wallet=WalletResponse(
                 currency=self.currency,
@@ -433,6 +485,22 @@ class FeedInteractionItem:
         )
 
 
+@dataclass(frozen=True)
+class CommentThreadFollowItem:
+    market_slug: str
+    comment_id: str
+    last_seen_reply_count: int
+    auto_followed: bool
+
+    def to_response_model(self) -> CommentThreadFollowItemResponse:
+        return CommentThreadFollowItemResponse(
+            marketSlug=self.market_slug,
+            commentId=self.comment_id,
+            lastSeenReplyCount=self.last_seen_reply_count,
+            autoFollowed=self.auto_followed,
+        )
+
+
 def snapshot_from_models(user: User, wallet: Wallet) -> AccountSnapshot:
     return AccountSnapshot(
         user_id=user.id,
@@ -441,6 +509,9 @@ def snapshot_from_models(user: User, wallet: Wallet) -> AccountSnapshot:
         mpesa_phone=user.mpesa_phone,
         mpesa_verified=user.mpesa_verified_at is not None,
         kyc_status=user.kyc_status,
+        is_admin=normalize_phone(user.phone) in {
+            normalize_phone(phone) for phone in settings.admin_phone_allowlist_values
+        },
         currency=wallet.currency,
         available_balance=quantize_money(wallet.available_balance),
         reserved_balance=quantize_money(wallet.reserved_balance),
@@ -590,6 +661,163 @@ class AccountAccessService:
                 return
             session_record.revoked_at = datetime.now(UTC)
 
+    async def submit_wallet_deposit(
+        self,
+        *,
+        user_id: str,
+        route: str,
+        idempotency_key: str,
+        amount: Decimal,
+    ) -> IdempotentResponse:
+        request_payload = {"amountKes": f"{quantize_money(amount):.2f}"}
+        request_hash = make_request_hash(request_payload)
+
+        existing_record = await get_idempotency_record(
+            self.session,
+            user_id=user_id,
+            route=route,
+            idempotency_key=idempotency_key,
+        )
+        if existing_record is not None:
+            return replay_idempotent_response(existing_record, request_hash=request_hash)
+
+        result = await self.initiate_wallet_deposit(user_id=user_id, amount=amount)
+        response_body = self._serialize_wallet_deposit_result(result)
+
+        try:
+            await self._store_idempotent_response(
+                user_id=user_id,
+                route=route,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+                response_body=response_body,
+                ttl=PAYMENT_IDEMPOTENCY_TTL,
+            )
+        except IntegrityError:
+            await self.session.rollback()
+            existing_record = await get_idempotency_record(
+                self.session,
+                user_id=user_id,
+                route=route,
+                idempotency_key=idempotency_key,
+            )
+            if existing_record is None:
+                raise RuntimeError("Idempotency conflict occurred but no durable record was found.")
+            return replay_idempotent_response(existing_record, request_hash=request_hash)
+
+        return IdempotentResponse(
+            status_code=status.HTTP_200_OK,
+            response_body=response_body,
+            idempotency_status="created",
+        )
+
+    async def submit_wallet_withdrawal(
+        self,
+        *,
+        user_id: str,
+        route: str,
+        idempotency_key: str,
+        amount: Decimal,
+    ) -> IdempotentResponse:
+        request_payload = {"amountKes": f"{quantize_money(amount):.2f}"}
+        request_hash = make_request_hash(request_payload)
+
+        existing_record = await get_idempotency_record(
+            self.session,
+            user_id=user_id,
+            route=route,
+            idempotency_key=idempotency_key,
+        )
+        if existing_record is not None:
+            return replay_idempotent_response(existing_record, request_hash=request_hash)
+
+        result = await self.initiate_wallet_withdrawal(user_id=user_id, amount=amount)
+        response_body = self._serialize_wallet_withdrawal_result(result)
+
+        try:
+            await self._store_idempotent_response(
+                user_id=user_id,
+                route=route,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+                response_body=response_body,
+                ttl=PAYMENT_IDEMPOTENCY_TTL,
+            )
+        except IntegrityError:
+            await self.session.rollback()
+            existing_record = await get_idempotency_record(
+                self.session,
+                user_id=user_id,
+                route=route,
+                idempotency_key=idempotency_key,
+            )
+            if existing_record is None:
+                raise RuntimeError("Idempotency conflict occurred but no durable record was found.")
+            return replay_idempotent_response(existing_record, request_hash=request_hash)
+
+        return IdempotentResponse(
+            status_code=status.HTTP_200_OK,
+            response_body=response_body,
+            idempotency_status="created",
+        )
+
+    async def submit_withdrawal_review(
+        self,
+        *,
+        admin_user_id: str,
+        route: str,
+        idempotency_key: str,
+        withdrawal_id: str,
+        decision: str,
+        note: str | None,
+    ) -> IdempotentResponse:
+        request_payload = {"decision": decision, "note": note}
+        request_hash = make_request_hash(request_payload)
+
+        existing_record = await get_idempotency_record(
+            self.session,
+            user_id=admin_user_id,
+            route=route,
+            idempotency_key=idempotency_key,
+        )
+        if existing_record is not None:
+            return replay_idempotent_response(existing_record, request_hash=request_hash)
+
+        response_model = await self.review_withdrawal(
+            admin_user_id=admin_user_id,
+            withdrawal_id=withdrawal_id,
+            decision=decision,
+            note=note,
+        )
+        response_body = response_model.model_dump(mode="json")
+
+        try:
+            await self._store_idempotent_response(
+                user_id=admin_user_id,
+                route=route,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+                response_body=response_body,
+                ttl=PAYMENT_IDEMPOTENCY_TTL,
+            )
+        except IntegrityError:
+            await self.session.rollback()
+            existing_record = await get_idempotency_record(
+                self.session,
+                user_id=admin_user_id,
+                route=route,
+                idempotency_key=idempotency_key,
+            )
+            if existing_record is None:
+                raise RuntimeError("Idempotency conflict occurred but no durable record was found.")
+            return replay_idempotent_response(existing_record, request_hash=request_hash)
+
+        return IdempotentResponse(
+            status_code=status.HTTP_200_OK,
+            response_body=response_body,
+            idempotency_status="created",
+        )
+
     async def initiate_wallet_deposit(
         self,
         *,
@@ -608,17 +836,6 @@ class AccountAccessService:
                 raise WalletFundingError("Verify your M-Pesa wallet before topping up.")
 
             deposit_reference = f"mpesa-topup-{uuid4()}"
-            try:
-                stk_result = await daraja_client.request_stk_push(
-                    phone=user.mpesa_phone,
-                    amount=f"{requested_amount:.2f}",
-                    account_reference=deposit_reference,
-                )
-            except DarajaConfigurationError as exc:
-                raise WalletFundingError(str(exc)) from exc
-            except Exception as exc:  # pragma: no cover
-                raise WalletFundingError("Could not initiate the M-Pesa prompt.") from exc
-
             self.session.add(
                 Deposit(
                     id=deposit_reference,
@@ -627,10 +844,10 @@ class AccountAccessService:
                     amount=requested_amount,
                     currency="KES",
                     provider="daraja",
-                    status="pending",
-                    merchant_request_id=stk_result.merchant_request_id,
-                    checkout_request_id=stk_result.checkout_request_id,
-                    customer_message=stk_result.customer_message,
+                    status="created",
+                    merchant_request_id=None,
+                    checkout_request_id=None,
+                    customer_message=None,
                     mpesa_receipt_number=None,
                     result_code=None,
                     result_desc=None,
@@ -638,6 +855,33 @@ class AccountAccessService:
                     credited_at=None,
                 )
             )
+
+        try:
+            stk_result = await daraja_client.request_stk_push(
+                phone=user.mpesa_phone,
+                amount=f"{requested_amount:.2f}",
+                account_reference=deposit_reference,
+            )
+        except DarajaConfigurationError as exc:
+            await self._mark_deposit_request_failed(
+                deposit_reference=deposit_reference,
+                error_message=str(exc),
+            )
+            raise WalletFundingError(str(exc)) from exc
+        except Exception as exc:  # pragma: no cover
+            error_message = "Could not initiate the M-Pesa prompt."
+            await self._mark_deposit_request_failed(
+                deposit_reference=deposit_reference,
+                error_message=error_message,
+            )
+            raise WalletFundingError(error_message) from exc
+
+        await self._mark_deposit_request_dispatched(
+            deposit_reference=deposit_reference,
+            merchant_request_id=stk_result.merchant_request_id,
+            checkout_request_id=stk_result.checkout_request_id,
+            customer_message=stk_result.customer_message,
+        )
 
         if settings.daraja_mode == "stub" and settings.daraja_stub_auto_complete:
             await self.process_stk_callback(
@@ -696,27 +940,8 @@ class AccountAccessService:
             requires_review = requested_amount > self.withdrawal_review_threshold
             wallet.available_balance = quantize_money(wallet.available_balance - requested_amount)
             wallet.reserved_balance = quantize_money(wallet.reserved_balance + requested_amount)
-
-            customer_message = (
-                "Withdrawal queued for manual review."
-                if requires_review
-                else f"M-Pesa withdrawal initiated for {user.mpesa_phone}"
-            )
-            status = "review_required" if requires_review else "pending"
-            payout_result: B2CPayoutResult | None = None
-
-            if not requires_review:
-                try:
-                    payout_result = await daraja_client.request_b2c_payout(
-                        phone=user.mpesa_phone,
-                        amount=f"{requested_amount:.2f}",
-                    )
-                except DarajaConfigurationError as exc:
-                    raise WalletFundingError(str(exc)) from exc
-                except Exception as exc:  # pragma: no cover
-                    raise WalletFundingError("Could not initiate the M-Pesa withdrawal.") from exc
-
-                customer_message = payout_result.response_description
+            customer_message = "Withdrawal queued for manual review."
+            status = "review_required" if requires_review else "created"
 
             self.session.add(
                 Withdrawal(
@@ -728,14 +953,8 @@ class AccountAccessService:
                     provider="daraja",
                     status=status,
                     requires_review=requires_review,
-                    conversation_id=(
-                        payout_result.conversation_id if payout_result is not None else None
-                    ),
-                    originator_conversation_id=(
-                        payout_result.originator_conversation_id
-                        if payout_result is not None
-                        else None
-                    ),
+                    conversation_id=None,
+                    originator_conversation_id=None,
                     result_code=None,
                     result_desc=None,
                     mpesa_receipt_number=None,
@@ -756,7 +975,36 @@ class AccountAccessService:
                     available_balance_after=wallet.available_balance,
                     reserved_balance_after=wallet.reserved_balance,
                     note=f"M-Pesa withdrawal hold for {user.mpesa_phone}",
+                    )
                 )
+
+        payout_result: B2CPayoutResult | None = None
+        if not requires_review:
+            try:
+                payout_result = await daraja_client.request_b2c_payout(
+                    phone=user.mpesa_phone,
+                    amount=f"{requested_amount:.2f}",
+                )
+            except DarajaConfigurationError as exc:
+                await self._fail_withdrawal_dispatch(
+                    withdrawal_reference=withdrawal_reference,
+                    error_message=str(exc),
+                )
+                raise WalletFundingError(str(exc)) from exc
+            except Exception as exc:  # pragma: no cover
+                error_message = "Could not initiate the M-Pesa withdrawal."
+                await self._fail_withdrawal_dispatch(
+                    withdrawal_reference=withdrawal_reference,
+                    error_message=error_message,
+                )
+                raise WalletFundingError(error_message) from exc
+
+            customer_message = payout_result.response_description
+            await self._mark_withdrawal_request_dispatched(
+                withdrawal_reference=withdrawal_reference,
+                conversation_id=payout_result.conversation_id,
+                originator_conversation_id=payout_result.originator_conversation_id,
+                result_desc=customer_message,
             )
 
         if (
@@ -793,6 +1041,186 @@ class AccountAccessService:
             customer_message=customer_message,
             account=account,
         )
+
+    def _serialize_wallet_deposit_result(self, result: WalletDepositResult) -> dict[str, str | None | dict]:
+        return {
+            "status": result.status,
+            "depositReference": result.deposit_reference,
+            "requestedAmountKes": f"{result.requested_amount:.2f}",
+            "checkoutRequestId": result.checkout_request_id,
+            "customerMessage": result.customer_message,
+            "account": result.account.to_response_model().model_dump(mode="json"),
+        }
+
+    def _serialize_wallet_withdrawal_result(
+        self,
+        result: WalletWithdrawalResult,
+    ) -> dict[str, str | bool | None | dict]:
+        return {
+            "status": result.status,
+            "withdrawalReference": result.withdrawal_reference,
+            "requestedAmountKes": f"{result.requested_amount:.2f}",
+            "reviewRequired": result.review_required,
+            "customerMessage": result.customer_message,
+            "account": result.account.to_response_model().model_dump(mode="json"),
+        }
+
+    async def _store_idempotent_response(
+        self,
+        *,
+        user_id: str,
+        route: str,
+        idempotency_key: str,
+        request_hash: str,
+        response_body: dict[str, object],
+        ttl: timedelta,
+    ) -> None:
+        async with self._transaction():
+            self.session.add(
+                build_idempotency_record(
+                    user_id=user_id,
+                    route=route,
+                    idempotency_key=idempotency_key,
+                    request_hash=request_hash,
+                    status_code=status.HTTP_200_OK,
+                    response_body=cast(dict[str, Any], response_body),
+                    ttl=ttl,
+                )
+            )
+
+    async def _mark_deposit_request_dispatched(
+        self,
+        *,
+        deposit_reference: str,
+        merchant_request_id: str,
+        checkout_request_id: str,
+        customer_message: str | None,
+    ) -> None:
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Deposit).where(Deposit.id == deposit_reference).with_for_update()
+            )
+            deposit = result.scalar_one_or_none()
+            if deposit is None:
+                raise WalletFundingError("Deposit intent was not found after creation.")
+
+            deposit.status = "pending"
+            deposit.merchant_request_id = merchant_request_id
+            deposit.checkout_request_id = checkout_request_id
+            deposit.customer_message = customer_message
+            deposit.result_desc = customer_message
+
+    async def _mark_deposit_request_failed(
+        self,
+        *,
+        deposit_reference: str,
+        error_message: str,
+    ) -> None:
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Deposit).where(Deposit.id == deposit_reference).with_for_update()
+            )
+            deposit = result.scalar_one_or_none()
+            if deposit is None:
+                return
+
+            deposit.status = "failed"
+            deposit.result_desc = error_message
+
+    async def _mark_withdrawal_request_dispatched(
+        self,
+        *,
+        withdrawal_reference: str,
+        conversation_id: str,
+        originator_conversation_id: str,
+        result_desc: str,
+    ) -> None:
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Withdrawal).where(Withdrawal.id == withdrawal_reference).with_for_update()
+            )
+            withdrawal = result.scalar_one_or_none()
+            if withdrawal is None:
+                raise WalletFundingError("Withdrawal intent was not found after creation.")
+
+            withdrawal.status = "pending"
+            withdrawal.result_desc = result_desc
+            withdrawal.conversation_id = conversation_id
+            withdrawal.originator_conversation_id = originator_conversation_id
+
+    async def _fail_withdrawal_dispatch(
+        self,
+        *,
+        withdrawal_reference: str,
+        error_message: str,
+    ) -> None:
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Withdrawal).where(Withdrawal.id == withdrawal_reference).with_for_update()
+            )
+            withdrawal = result.scalar_one_or_none()
+            if withdrawal is None:
+                return
+
+            wallet = await self._get_or_create_wallet_for_update(withdrawal.user_id)
+            wallet.available_balance = quantize_money(wallet.available_balance + withdrawal.amount)
+            wallet.reserved_balance = quantize_money(wallet.reserved_balance - withdrawal.amount)
+            withdrawal.status = "failed"
+            withdrawal.failed_at = datetime.now(UTC)
+            withdrawal.result_desc = error_message
+            self.session.add(
+                LedgerEntry(
+                    id=str(uuid4()),
+                    user_id=withdrawal.user_id,
+                    entry_type="MPESA_WITHDRAWAL_RELEASE",
+                    amount=withdrawal.amount,
+                    currency=wallet.currency,
+                    reference_type="withdrawal",
+                    reference_id=withdrawal.id,
+                    available_balance_after=wallet.available_balance,
+                    reserved_balance_after=wallet.reserved_balance,
+                    note=(
+                        f"Withdrawal dispatch failed and released held funds for {withdrawal.phone}"
+                    ),
+                )
+            )
+
+    async def _mark_reviewed_withdrawal_dispatched(
+        self,
+        *,
+        withdrawal_id: str,
+        conversation_id: str,
+        originator_conversation_id: str,
+        result_desc: str,
+    ) -> None:
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Withdrawal).where(Withdrawal.id == withdrawal_id).with_for_update()
+            )
+            withdrawal = result.scalar_one_or_none()
+            if withdrawal is None:
+                raise WalletFundingError("Withdrawal review target was not found after approval.")
+
+            withdrawal.status = "pending"
+            withdrawal.result_desc = result_desc
+            withdrawal.conversation_id = conversation_id
+            withdrawal.originator_conversation_id = originator_conversation_id
+
+    async def _mark_reviewed_withdrawal_dispatch_failed(
+        self,
+        *,
+        withdrawal_id: str,
+        error_message: str,
+    ) -> None:
+        async with self._transaction():
+            result = await self.session.execute(
+                select(Withdrawal).where(Withdrawal.id == withdrawal_id).with_for_update()
+            )
+            withdrawal = result.scalar_one_or_none()
+            if withdrawal is None:
+                return
+
+            withdrawal.result_desc = error_message
 
     @asynccontextmanager
     async def _transaction(self):
@@ -1330,6 +1758,241 @@ class AccountAccessService:
 
         return await self.get_feed_interactions(user_id=user_id)
 
+    async def get_comment_thread_follows(
+        self,
+        *,
+        user_id: str,
+    ) -> CommentThreadFollowsResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        result = await self.session.execute(
+            select(UserCommentThreadFollow)
+            .where(UserCommentThreadFollow.user_id == user_id)
+            .order_by(desc(UserCommentThreadFollow.updated_at))
+        )
+        follows = result.scalars().all()
+
+        return CommentThreadFollowsResponse(
+            items=[
+                CommentThreadFollowItem(
+                    market_slug=follow.market_slug,
+                    comment_id=follow.comment_id,
+                    last_seen_reply_count=follow.last_seen_reply_count,
+                    auto_followed=follow.auto_followed,
+                ).to_response_model()
+                for follow in follows
+            ]
+        )
+
+    async def get_comment_thread_notifications(
+        self,
+        *,
+        user_id: str,
+    ) -> CommentThreadNotificationsResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        follows_result = await self.session.execute(
+            select(UserCommentThreadFollow)
+            .where(UserCommentThreadFollow.user_id == user_id)
+            .order_by(desc(UserCommentThreadFollow.updated_at))
+        )
+        follows = follows_result.scalars().all()
+        if not follows:
+            return CommentThreadNotificationsResponse(items=[])
+
+        market_slugs = sorted({follow.market_slug for follow in follows})
+        comment_ids = sorted({follow.comment_id for follow in follows})
+
+        markets_result = await self.session.execute(
+            select(Market).where(Market.slug.in_(market_slugs))
+        )
+        market_by_slug = {market.slug: market for market in markets_result.scalars().all()}
+
+        parent_comments_result = await self.session.execute(
+            select(MarketComment, User)
+            .join(User, User.id == MarketComment.user_id)
+            .where(
+                MarketComment.id.in_(comment_ids),
+                MarketComment.hidden_at.is_(None),
+            )
+        )
+        parent_comments = {
+            comment.id: (comment, user)
+            for comment, user in parent_comments_result.all()
+        }
+        if not parent_comments:
+            return CommentThreadNotificationsResponse(items=[])
+
+        replies_result = await self.session.execute(
+            select(MarketComment, User)
+            .join(User, User.id == MarketComment.user_id)
+            .where(
+                MarketComment.parent_comment_id.in_(list(parent_comments.keys())),
+                MarketComment.hidden_at.is_(None),
+            )
+            .order_by(MarketComment.created_at.asc())
+        )
+        replies_by_parent: dict[str, list[tuple[MarketComment, User]]] = defaultdict(list)
+        for reply, user in replies_result.all():
+            if reply.parent_comment_id is not None:
+                replies_by_parent[reply.parent_comment_id].append((reply, user))
+
+        items: list[CommentThreadNotificationItemResponse] = []
+        for follow in follows:
+            parent_row = parent_comments.get(follow.comment_id)
+            market = market_by_slug.get(follow.market_slug)
+            if parent_row is None or market is None:
+                continue
+
+            parent_comment, parent_author = parent_row
+            replies = replies_by_parent.get(parent_comment.id, [])
+            unread_reply_count = max(0, len(replies) - follow.last_seen_reply_count)
+            if unread_reply_count <= 0:
+                continue
+
+            latest_reply, latest_reply_author = replies[-1]
+            items.append(
+                CommentThreadNotificationItem(
+                    market_slug=follow.market_slug,
+                    market_question=market.question,
+                    comment_id=parent_comment.id,
+                    comment_author=parent_author.first_name,
+                    comment_body=parent_comment.body,
+                    unread_reply_count=unread_reply_count,
+                    total_reply_count=len(replies),
+                    auto_followed=follow.auto_followed,
+                    latest_reply_comment_id=latest_reply.id,
+                    latest_reply_author=latest_reply_author.first_name,
+                    latest_reply_body=latest_reply.body,
+                    latest_reply_at=latest_reply.created_at.isoformat(),
+                ).to_response_model()
+            )
+
+        items.sort(
+            key=lambda item: (
+                item.latestReplyAt or "",
+                str(item.unreadReplyCount).zfill(6),
+            ),
+            reverse=True,
+        )
+        return CommentThreadNotificationsResponse(items=items)
+
+    async def upsert_comment_thread_follow(
+        self,
+        *,
+        user_id: str,
+        market_slug: str,
+        comment_id: str,
+        last_seen_reply_count: int,
+        auto_followed: bool,
+    ) -> CommentThreadFollowItemResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        async with self._transaction():
+            result = await self.session.execute(
+                select(UserCommentThreadFollow).where(
+                    UserCommentThreadFollow.user_id == user_id,
+                    UserCommentThreadFollow.market_slug == market_slug,
+                    UserCommentThreadFollow.comment_id == comment_id,
+                )
+            )
+            follow = result.scalar_one_or_none()
+
+            if follow is None:
+                follow = UserCommentThreadFollow(
+                    id=str(uuid4()),
+                    user_id=user_id,
+                    market_slug=market_slug,
+                    comment_id=comment_id,
+                    last_seen_reply_count=last_seen_reply_count,
+                    auto_followed=auto_followed,
+                )
+                self.session.add(follow)
+            else:
+                follow.last_seen_reply_count = max(
+                    follow.last_seen_reply_count,
+                    last_seen_reply_count,
+                )
+                follow.auto_followed = follow.auto_followed or auto_followed
+
+        return CommentThreadFollowItem(
+            market_slug=follow.market_slug,
+            comment_id=follow.comment_id,
+            last_seen_reply_count=follow.last_seen_reply_count,
+            auto_followed=follow.auto_followed,
+        ).to_response_model()
+
+    async def sync_comment_thread_follows(
+        self,
+        *,
+        user_id: str,
+        payload: CommentThreadFollowSyncRequest,
+    ) -> CommentThreadFollowsResponse:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        async with self._transaction():
+            for item in payload.items:
+                result = await self.session.execute(
+                    select(UserCommentThreadFollow).where(
+                        UserCommentThreadFollow.user_id == user_id,
+                        UserCommentThreadFollow.market_slug == item.marketSlug,
+                        UserCommentThreadFollow.comment_id == item.commentId,
+                    )
+                )
+                follow = result.scalar_one_or_none()
+
+                if follow is None:
+                    self.session.add(
+                        UserCommentThreadFollow(
+                            id=str(uuid4()),
+                            user_id=user_id,
+                            market_slug=item.marketSlug,
+                            comment_id=item.commentId,
+                            last_seen_reply_count=item.lastSeenReplyCount,
+                            auto_followed=item.autoFollowed,
+                        )
+                    )
+                    continue
+
+                follow.last_seen_reply_count = max(
+                    follow.last_seen_reply_count,
+                    item.lastSeenReplyCount,
+                )
+                follow.auto_followed = follow.auto_followed or item.autoFollowed
+
+        return await self.get_comment_thread_follows(user_id=user_id)
+
+    async def delete_comment_thread_follow(
+        self,
+        *,
+        user_id: str,
+        market_slug: str,
+        comment_id: str,
+    ) -> None:
+        account = await self._load_account_snapshot(user_id)
+        if account is None:
+            raise AuthenticationError("Authenticated user was not found.")
+
+        async with self._transaction():
+            result = await self.session.execute(
+                select(UserCommentThreadFollow).where(
+                    UserCommentThreadFollow.user_id == user_id,
+                    UserCommentThreadFollow.market_slug == market_slug,
+                    UserCommentThreadFollow.comment_id == comment_id,
+                )
+            )
+            follow = result.scalar_one_or_none()
+            if follow is not None:
+                await self.session.delete(follow)
+
     async def get_kyc_profile(self, *, user_id: str) -> KycSubmissionResponse | None:
         account = await self._load_account_snapshot(user_id)
         if account is None:
@@ -1555,6 +2218,7 @@ class AccountAccessService:
         payout_result: B2CPayoutResult | None = None
         approved_amount = Decimal("0.00")
         approved_phone = ""
+        approval_note = note.strip() if note and note.strip() else None
 
         async with self._transaction():
             await self._assert_admin_user(admin_user_id)
@@ -1615,22 +2279,34 @@ class AccountAccessService:
             else:
                 approved_amount = quantize_money(withdrawal.amount)
                 approved_phone = withdrawal.phone
-                try:
-                    payout_result = await daraja_client.request_b2c_payout(
-                        phone=withdrawal.phone,
-                        amount=f"{approved_amount:.2f}",
-                    )
-                except DarajaConfigurationError as exc:
-                    raise WalletFundingError(str(exc)) from exc
-                except Exception as exc:  # pragma: no cover
-                    raise WalletFundingError("Could not release the M-Pesa withdrawal.") from exc
+                withdrawal.result_desc = approval_note
 
-                withdrawal.status = "pending"
-                withdrawal.result_desc = (
-                    note.strip() if note and note.strip() else payout_result.response_description
+        if normalized_decision == "approved":
+            try:
+                payout_result = await daraja_client.request_b2c_payout(
+                    phone=approved_phone,
+                    amount=f"{approved_amount:.2f}",
                 )
-                withdrawal.conversation_id = payout_result.conversation_id
-                withdrawal.originator_conversation_id = payout_result.originator_conversation_id
+            except DarajaConfigurationError as exc:
+                await self._mark_reviewed_withdrawal_dispatch_failed(
+                    withdrawal_id=withdrawal_id,
+                    error_message=str(exc),
+                )
+                raise WalletFundingError(str(exc)) from exc
+            except Exception as exc:  # pragma: no cover
+                error_message = "Could not release the M-Pesa withdrawal."
+                await self._mark_reviewed_withdrawal_dispatch_failed(
+                    withdrawal_id=withdrawal_id,
+                    error_message=error_message,
+                )
+                raise WalletFundingError(error_message) from exc
+
+            await self._mark_reviewed_withdrawal_dispatched(
+                withdrawal_id=withdrawal_id,
+                conversation_id=payout_result.conversation_id,
+                originator_conversation_id=payout_result.originator_conversation_id,
+                result_desc=approval_note or payout_result.response_description,
+            )
 
         if (
             normalized_decision == "approved"
@@ -1796,7 +2472,7 @@ class AccountAccessService:
             select(Withdrawal.amount).where(
                 Withdrawal.user_id == user_id,
                 Withdrawal.created_at >= day_start,
-                Withdrawal.status.in_(("pending", "review_required", "completed")),
+                Withdrawal.status.in_(("created", "pending", "review_required", "completed")),
             )
         )
         amounts = result.scalars().all()

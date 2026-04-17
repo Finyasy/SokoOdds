@@ -24,10 +24,14 @@ export default async function AccountAccessPage({ searchParams }: AccountAccessP
           <div className="cash-signin-card account-access-card">
             <div>
               <span className="section-kicker">{isLogin ? "Log in" : "Sign up"}</span>
-              <h1>{isLogin ? "Reconnect your SokoOdds wallet." : "Create your SokoOdds wallet."}</h1>
+              <h1>
+                {isLogin
+                  ? "Reconnect to East Africa's premier prediction market."
+                  : "Start your East Africa prediction wallet."}
+              </h1>
               <p>
-                Use the same M-Pesa number you trade with. We will take you straight to your
-                account surfaces after this step.
+                Use the same M-Pesa number you trade with. We will take you straight to the account
+                surfaces where you can predict, trade and win.
               </p>
             </div>
           </div>
@@ -37,7 +41,7 @@ export default async function AccountAccessPage({ searchParams }: AccountAccessP
           <section className="portfolio-card account-access-form-card">
             <div className="portfolio-card__head">
               <span className="market-chip">Account access</span>
-              <strong>{isLogin ? "Use your existing number" : "Start with your phone"}</strong>
+              <strong>{isLogin ? "Use your existing number" : "Start with your M-Pesa number"}</strong>
             </div>
 
             <form method="post" action="/api/account/session" className="account-access-form">

@@ -3,10 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Market } from "@/lib/mock-data";
 import { formatKes } from "@/lib/mock-data";
-import {
-  fetchPortfolioOrders,
-  type PortfolioOrdersResponse
-} from "@/lib/account-client";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import { MarketIdentity } from "./market-identity";
 
@@ -21,6 +17,8 @@ export function OrderTicket({ market }: OrderTicketProps) {
     recentMarketSlugs,
     notificationPreferences,
     feedInteractions,
+    portfolioOrders,
+    isHydrated,
     isSyncingAccount,
     openAccountSheet,
     openVerificationSheet,
@@ -31,13 +29,32 @@ export function OrderTicket({ market }: OrderTicketProps) {
   const [walletState, setWalletState] = useState<"idle" | "funding" | "funded">("idle");
   const [orderError, setOrderError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
-  const [portfolioSnapshot, setPortfolioSnapshot] = useState<PortfolioOrdersResponse | null>(null);
-  const activePortfolioSnapshot = state.isSignedIn ? portfolioSnapshot : null;
+  const activePortfolioSnapshot = state.isSignedIn ? portfolioOrders : null;
   const quantity = 8;
   const estimatedStake = quantity * market.yesPrice;
   const canTrade = state.isSignedIn && state.mpesaVerified && state.walletBalanceKes >= estimatedStake;
-  const isWatchlisted = watchlist.includes(market.slug);
-  const feedSignal = feedInteractions[market.slug];
+  const stableWatchlist = useMemo(() => (isHydrated ? watchlist : []), [isHydrated, watchlist]);
+  const stableRecentMarketSlugs = useMemo(
+    () => (isHydrated ? recentMarketSlugs : []),
+    [isHydrated, recentMarketSlugs]
+  );
+  const stableNotificationPreferences = useMemo(
+    () =>
+      isHydrated
+        ? notificationPreferences
+        : {
+            priceMoves: false,
+            marketResolutions: true,
+            accountAlerts: true,
+          },
+    [isHydrated, notificationPreferences]
+  );
+  const stableFeedInteractions = useMemo(
+    () => (isHydrated ? feedInteractions : {}),
+    [feedInteractions, isHydrated]
+  );
+  const isWatchlisted = stableWatchlist.includes(market.slug);
+  const feedSignal = stableFeedInteractions[market.slug];
   const livePosition = useMemo(
     () => activePortfolioSnapshot?.positions?.find((position) => position.marketId === market.id) ?? null,
     [activePortfolioSnapshot, market.id]
@@ -46,33 +63,6 @@ export function OrderTicket({ market }: OrderTicketProps) {
     () => activePortfolioSnapshot?.markets?.find((item) => item.marketId === market.id) ?? null,
     [activePortfolioSnapshot, market.id]
   );
-
-  useEffect(() => {
-    if (!state.isSignedIn) {
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadPortfolioSnapshot() {
-      try {
-        const nextSnapshot = await fetchPortfolioOrders();
-        if (!cancelled) {
-          setPortfolioSnapshot(nextSnapshot);
-        }
-      } catch {
-        if (!cancelled) {
-          setPortfolioSnapshot(null);
-        }
-      }
-    }
-
-    void loadPortfolioSnapshot();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [state.isSignedIn, state.phone]);
 
   const ticketContext = useMemo(() => {
     const items: string[] = [];
@@ -92,10 +82,10 @@ export function OrderTicket({ market }: OrderTicketProps) {
     if (isWatchlisted) {
       items.push("Saved to watchlist");
     }
-    if (recentMarketSlugs.includes(market.slug)) {
+    if (stableRecentMarketSlugs.includes(market.slug)) {
       items.push("Recently viewed");
     }
-    if (notificationPreferences.priceMoves) {
+    if (stableNotificationPreferences.priceMoves) {
       items.push("Price alerts on");
     }
 
@@ -106,8 +96,8 @@ export function OrderTicket({ market }: OrderTicketProps) {
     liveExposure,
     livePosition,
     market.slug,
-    notificationPreferences.priceMoves,
-    recentMarketSlugs
+    stableNotificationPreferences.priceMoves,
+    stableRecentMarketSlugs
   ]);
   const hasLivePosition = Boolean(livePosition);
   const hasLiveExposure = Boolean(liveExposure);
@@ -223,12 +213,6 @@ export function OrderTicket({ market }: OrderTicketProps) {
       setLastOrderId(result.orderId);
       setOrderState("submitted");
       setWalletState("idle");
-      try {
-        const nextSnapshot = await fetchPortfolioOrders();
-        setPortfolioSnapshot(nextSnapshot);
-      } catch {
-        // Leave the existing snapshot in place if the refresh misses.
-      }
     } catch (error) {
       setOrderState("idle");
       setOrderError(error instanceof Error ? error.message : "Could not submit this order.");

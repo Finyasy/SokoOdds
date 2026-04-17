@@ -7,7 +7,11 @@ import { MarketIdentity } from "@/components/market/market-identity";
 import { OrderTicket } from "@/components/market/order-ticket";
 import { ProbabilityChart } from "@/components/market/probability-chart";
 import { ProbabilityPill } from "@/components/market/probability-pill";
-import { getMarketBySlug } from "@/lib/market-api";
+import {
+  getMarketBySlug,
+  getMarketCommentsBySlug,
+  getMarketTopHoldersBySlug,
+} from "@/lib/market-api";
 import { formatClosingLabel, formatKes, getRelatedMarketsForMarket } from "@/lib/mock-data";
 
 export default async function MarketDetailPage({
@@ -16,7 +20,11 @@ export default async function MarketDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const market = await getMarketBySlug(slug);
+  const [market, comments, topHolders] = await Promise.all([
+    getMarketBySlug(slug),
+    getMarketCommentsBySlug(slug),
+    getMarketTopHoldersBySlug(slug),
+  ]);
 
   if (!market) {
     notFound();
@@ -94,7 +102,12 @@ export default async function MarketDetailPage({
           </div>
         </section>
 
-        <MarketDetailExperience market={market} relatedMarkets={relatedMarkets} />
+        <MarketDetailExperience
+          market={market}
+          relatedMarkets={relatedMarkets}
+          comments={comments}
+          topHolders={topHolders}
+        />
 
         <div className="mobile-trade-bar" aria-label="Mobile trade shortcut">
           <div className="mobile-trade-bar__prices">

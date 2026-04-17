@@ -6,6 +6,7 @@ export type AccountSnapshot = {
     mpesaPhone: string | null;
     mpesaVerified: boolean;
     kycStatus: string;
+    isAdmin: boolean;
   };
   wallet: {
     currency: string;
@@ -175,6 +176,36 @@ export type FeedInteractionsResponse = {
   items: FeedInteractionItem[];
 };
 
+export type CommentThreadFollowItem = {
+  marketSlug: string;
+  commentId: string;
+  lastSeenReplyCount: number;
+  autoFollowed: boolean;
+};
+
+export type CommentThreadFollowsResponse = {
+  items: CommentThreadFollowItem[];
+};
+
+export type CommentThreadNotificationItem = {
+  marketSlug: string;
+  marketQuestion: string;
+  commentId: string;
+  commentAuthor: string;
+  commentBody: string;
+  unreadReplyCount: number;
+  totalReplyCount: number;
+  autoFollowed: boolean;
+  latestReplyCommentId: string | null;
+  latestReplyAuthor: string | null;
+  latestReplyBody: string | null;
+  latestReplyAt: string | null;
+};
+
+export type CommentThreadNotificationsResponse = {
+  items: CommentThreadNotificationItem[];
+};
+
 export type KycProfileResponse = {
   status: string;
   legalName: string;
@@ -230,6 +261,24 @@ export type AdminWalletSupportResponse = {
 };
 
 export type AdminWithdrawalReviewResponse = AdminWalletSupportItem;
+
+export type AdminMarketCommentItem = {
+  id: string;
+  marketId: string;
+  marketSlug: string;
+  marketQuestion: string;
+  author: string;
+  body: string;
+  likes: number;
+  status: "visible" | "hidden";
+  createdAt: string;
+  hiddenAt: string | null;
+  hiddenByName: string | null;
+};
+
+export type AdminMarketCommentResponse = {
+  items: AdminMarketCommentItem[];
+};
 
 type AccountApiErrorShape = {
   detail?: string;
@@ -558,6 +607,31 @@ export async function reviewAdminWithdrawal(input: {
   return payload;
 }
 
+export async function fetchAdminMarketComments(input?: {
+  status?: string;
+  limit?: number;
+}): Promise<AdminMarketCommentResponse> {
+  const query = new URLSearchParams();
+  if (input?.status) {
+    query.set("status", input.status);
+  }
+  if (input?.limit) {
+    query.set("limit", String(input.limit));
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const response = await fetch(`/api/account/admin/markets/comments${suffix}`, {
+    cache: "no-store",
+  });
+
+  const payload = await readJson<AdminMarketCommentResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload || !Array.isArray(payload.items)) {
+    throw new Error(getErrorMessage(payload, "Could not load the market comment queue."));
+  }
+
+  return payload;
+}
+
 export async function submitOrder(
   input: OrderSubmissionPayload,
   idempotencyKey: string
@@ -613,6 +687,92 @@ export async function recordFeedInteraction(input: {
   const payload = await readJson<FeedInteractionItem & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.marketSlug) {
     throw new Error(getErrorMessage(payload, "Could not save the feed interaction."));
+  }
+
+  return payload;
+}
+
+export async function fetchCommentThreadFollows(): Promise<CommentThreadFollowsResponse> {
+  const response = await fetch("/api/account/comment-threads/follows", {
+    cache: "no-store",
+  });
+
+  const payload = await readJson<CommentThreadFollowsResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.items) {
+    throw new Error(getErrorMessage(payload, "Could not read thread follows."));
+  }
+
+  return payload;
+}
+
+export async function fetchCommentThreadNotifications(): Promise<CommentThreadNotificationsResponse> {
+  const response = await fetch("/api/account/comment-threads/notifications", {
+    cache: "no-store",
+  });
+
+  const payload = await readJson<CommentThreadNotificationsResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.items) {
+    throw new Error(getErrorMessage(payload, "Could not read thread notifications."));
+  }
+
+  return payload;
+}
+
+export async function upsertCommentThreadFollow(input: {
+  marketSlug: string;
+  commentId: string;
+  lastSeenReplyCount: number;
+  autoFollowed: boolean;
+}): Promise<CommentThreadFollowItem> {
+  const response = await fetch("/api/account/comment-threads/follows", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  const payload = await readJson<CommentThreadFollowItem & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.commentId) {
+    throw new Error(getErrorMessage(payload, "Could not save the thread follow."));
+  }
+
+  return payload;
+}
+
+export async function deleteCommentThreadFollow(input: {
+  marketSlug: string;
+  commentId: string;
+}): Promise<void> {
+  const query = new URLSearchParams({
+    marketSlug: input.marketSlug,
+    commentId: input.commentId,
+  });
+
+  const response = await fetch(`/api/account/comment-threads/follows?${query.toString()}`, {
+    method: "DELETE",
+  });
+
+  const payload = await readJson<AccountApiErrorShape>(response);
+  if (!response.ok) {
+    throw new Error(getErrorMessage(payload, "Could not remove the thread follow."));
+  }
+}
+
+export async function syncCommentThreadFollows(input: {
+  items: CommentThreadFollowItem[];
+}): Promise<CommentThreadFollowsResponse> {
+  const response = await fetch("/api/account/comment-threads/follows/sync", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  const payload = await readJson<CommentThreadFollowsResponse & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.items) {
+    throw new Error(getErrorMessage(payload, "Could not sync thread follows."));
   }
 
   return payload;

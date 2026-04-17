@@ -5,6 +5,10 @@ import { usePathname } from "next/navigation";
 
 const ADMIN_LINKS = [
   {
+    href: "/admin/markets",
+    label: "Market comments"
+  },
+  {
     href: "/admin/kyc",
     label: "KYC queue"
   },

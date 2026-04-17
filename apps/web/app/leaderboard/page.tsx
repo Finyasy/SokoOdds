@@ -9,10 +9,10 @@ export default function LeaderboardPage() {
       <main className="site-shell page-stack">
         <section className="page-hero">
           <span className="page-hero__eyebrow market-chip">Leaderboard</span>
-          <h1>Top traders, steady performers, and active market readers.</h1>
+          <h1>Top traders, steady performers, and the sharpest readers of East Africa's markets.</h1>
           <p>
-            This surface is designed to rank more than raw wins: consistency, fill quality, market
-            participation, and disciplined risk-taking all matter in a healthier market board.
+            This surface ranks more than raw wins: consistency, fill quality, market participation,
+            and disciplined risk-taking all matter in a healthier prediction market.
           </p>
           <div className="filter-row">
             <Link href="/portfolio" className="ghost-button">

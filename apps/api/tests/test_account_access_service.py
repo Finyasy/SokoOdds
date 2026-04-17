@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from app.integrations.daraja import DarajaConfigurationError
 from app.models import (
     Base,
     Deposit,
@@ -22,7 +23,7 @@ from app.models import (
     Withdrawal,
 )
 from app.schemas.account import FeedInteractionSyncItemRequest, FeedInteractionSyncRequest
-from app.services.account_access import AccountAccessService
+from app.services.account_access import AccountAccessService, WalletFundingError, daraja_client
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -575,6 +576,93 @@ async def test_admin_can_release_review_required_withdrawal(async_session: Async
     assert result.reviewedAt is not None
     assert wallet is not None
     assert wallet.available_balance == Decimal("405.00")
+    assert wallet.reserved_balance == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_deposit_request_failure_marks_committed_intent_failed(
+    async_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    async def fail_stk_push(*, phone: str, amount: str, account_reference: str):
+        del phone, amount, account_reference
+        raise DarajaConfigurationError("Missing Daraja credentials.")
+
+    monkeypatch.setattr(daraja_client, "request_stk_push", fail_stk_push)
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    await service.verify_mpesa(user_id=onboarded.account.user_id, phone="0712 345 678")
+
+    with pytest.raises(WalletFundingError, match="Missing Daraja credentials."):
+        await service.initiate_wallet_deposit(
+            user_id=onboarded.account.user_id,
+            amount=Decimal("500.00"),
+        )
+
+    deposit = await async_session.scalar(
+        select(Deposit).where(Deposit.user_id == onboarded.account.user_id)
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
+    )
+
+    assert deposit is not None
+    assert deposit.status == "failed"
+    assert deposit.checkout_request_id is None
+    assert deposit.result_desc == "Missing Daraja credentials."
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("5.00")
+
+
+@pytest.mark.asyncio
+async def test_withdrawal_dispatch_failure_releases_held_funds(
+    async_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+
+    async def fail_b2c_payout(*, phone: str, amount: str):
+        del phone, amount
+        raise DarajaConfigurationError("Missing B2C credentials.")
+
+    monkeypatch.setattr(daraja_client, "request_b2c_payout", fail_b2c_payout)
+
+    onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
+    await service.verify_mpesa(user_id=onboarded.account.user_id, phone="0712 345 678")
+    await service.initiate_wallet_deposit(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("500.00"),
+    )
+
+    with pytest.raises(WalletFundingError, match="Missing B2C credentials."):
+        await service.initiate_wallet_withdrawal(
+            user_id=onboarded.account.user_id,
+            amount=Decimal("200.00"),
+        )
+
+    withdrawal = await async_session.scalar(
+        select(Withdrawal).where(Withdrawal.user_id == onboarded.account.user_id)
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
+    )
+
+    assert withdrawal is not None
+    assert withdrawal.status == "failed"
+    assert withdrawal.conversation_id is None
+    assert withdrawal.result_desc == "Missing B2C credentials."
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("505.00")
     assert wallet.reserved_balance == Decimal("0.00")
 
 

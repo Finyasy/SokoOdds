@@ -83,13 +83,19 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
     recentMarketSlugs,
     notificationPreferences,
     feedInteractions,
+    commentThreadNotifications,
     isHydrated,
+    markCommentThreadSeen,
     recordFeedImpression,
     recordFeedPause,
     recordFeedOpen,
     updateNotificationPreference,
   } = useOnboarding();
   const [streak, setStreak] = useState<StoredStreak>(() => loadStoredStreak());
+  const [dismissedThreadKeys, setDismissedThreadKeys] = useState<string[]>([]);
+  const [moderatedThreadKeys, setModeratedThreadKeys] = useState<Record<string, "hidden">>({});
+  const [hidingThreadKey, setHidingThreadKey] = useState<string | null>(null);
+  const [restoringThreadKey, setRestoringThreadKey] = useState<string | null>(null);
   const seenFeedImpressionsRef = useRef<Set<string>>(new Set());
   const todayStamp = getTodayStamp();
   const hasCheckedInToday = streak.lastCheckIn === todayStamp;
@@ -182,6 +188,15 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
     () => [...rankedMarkets].sort((left, right) => right.market.trades.length - left.market.trades.length).slice(0, 3),
     [rankedMarkets],
   );
+  const threadNotifications = useMemo(
+    () =>
+      commentThreadNotifications
+        .filter(
+          (item) => !dismissedThreadKeys.includes(`${item.marketSlug}:${item.commentId}`),
+        )
+        .slice(0, 3),
+    [commentThreadNotifications, dismissedThreadKeys],
+  );
   const dailyMissions = useMemo(
     () => [
       {
@@ -246,6 +261,103 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
     });
   }, [swipeMarkets]);
 
+  useEffect(() => {
+    setDismissedThreadKeys((current) =>
+      current.filter((key) =>
+        commentThreadNotifications.some(
+          (item) => `${item.marketSlug}:${item.commentId}` === key,
+        ),
+      ),
+    );
+    setModeratedThreadKeys((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([key]) =>
+          commentThreadNotifications.some(
+            (item) => `${item.marketSlug}:${item.commentId}` === key,
+          ),
+        ),
+      ),
+    );
+  }, [commentThreadNotifications]);
+
+  function handleCatchUpThread(marketSlug: string, commentId: string, totalReplyCount: number) {
+    const notificationKey = `${marketSlug}:${commentId}`;
+    setDismissedThreadKeys((current) =>
+      current.includes(notificationKey) ? current : [...current, notificationKey],
+    );
+    markCommentThreadSeen(marketSlug, commentId, totalReplyCount);
+  }
+
+  function handleCatchUpAllThreads() {
+    threadNotifications.forEach((item) => {
+      markCommentThreadSeen(item.marketSlug, item.commentId, item.totalReplyCount);
+    });
+    setDismissedThreadKeys((current) => [
+      ...new Set([
+        ...current,
+        ...threadNotifications.map((item) => `${item.marketSlug}:${item.commentId}`),
+      ]),
+    ]);
+  }
+
+  async function handleHideLatestReply(marketSlug: string, commentId: string, replyCommentId: string) {
+    const notificationKey = `${marketSlug}:${commentId}`;
+    if (hidingThreadKey === notificationKey) {
+      return;
+    }
+
+    setHidingThreadKey(notificationKey);
+    try {
+      const response = await fetch(`/api/markets/${marketSlug}/comments/${replyCommentId}/hide`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      setModeratedThreadKeys((current) => ({
+        ...current,
+        [notificationKey]: "hidden",
+      }));
+    } finally {
+      setHidingThreadKey(null);
+    }
+  }
+
+  async function handleRestoreLatestReply(
+    marketSlug: string,
+    commentId: string,
+    replyCommentId: string,
+  ) {
+    const notificationKey = `${marketSlug}:${commentId}`;
+    if (restoringThreadKey === notificationKey) {
+      return;
+    }
+
+    setRestoringThreadKey(notificationKey);
+    try {
+      const response = await fetch(
+        `/api/markets/${marketSlug}/comments/${replyCommentId}/restore`,
+        {
+          method: "POST",
+        },
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      setModeratedThreadKeys((current) => {
+        const next = { ...current };
+        delete next[notificationKey];
+        return next;
+      });
+    } finally {
+      setRestoringThreadKey(null);
+    }
+  }
+
   return (
     <section className="for-you-hub" aria-label="For you market feed" data-testid="for-you-hub">
       <div className="for-you-hub__hero">
@@ -253,8 +365,8 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
           <span className="section-kicker">For you</span>
           <h1>{state.name ? `${state.name}, here’s your market rhythm.` : "Your market rhythm starts here."}</h1>
           <p>
-            A faster SokoOdds loop for daily check-ins, sharper picks, and markets worth coming
-            back for tonight.
+            Predict smarter, trade the moments that move East Africa, and keep the best markets
+            close through the day.
           </p>
         </div>
         <div className="for-you-hub__hero-stats">
@@ -456,6 +568,123 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
       </section>
 
       <div className="for-you-hub__grid for-you-hub__grid--supporting">
+        <section className="for-you-card for-you-card--compact" data-testid="for-you-thread-updates">
+          <div className="for-you-card__head">
+            <span className="market-chip">Thread updates</span>
+            <strong>
+              {threadNotifications.length
+                ? `${threadNotifications.length} reply alert${threadNotifications.length === 1 ? "" : "s"}`
+                : "No unread replies"}
+            </strong>
+          </div>
+          {state.isSignedIn && threadNotifications.length > 1 ? (
+            <div className="for-you-thread-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={handleCatchUpAllThreads}
+              >
+                Mark all caught up
+              </button>
+            </div>
+          ) : null}
+          {state.isSignedIn ? (
+            threadNotifications.length ? (
+              <div className="for-you-thread-updates">
+                {threadNotifications.map((item) => (
+                  <article
+                    key={`${item.marketSlug}-${item.commentId}`}
+                    className="for-you-thread-update"
+                  >
+                    <div className="for-you-thread-update__meta">
+                      <span className="market-chip">{item.unreadReplyCount} unread</span>
+                      <span>{item.autoFollowed ? "Auto-followed" : "Following"}</span>
+                    </div>
+                    <strong>{item.marketQuestion}</strong>
+                    <p>{item.commentBody}</p>
+                    <span>
+                      Latest by {item.latestReplyAuthor ?? "a trader"}
+                      {item.latestReplyBody ? ` · ${item.latestReplyBody}` : ""}
+                    </span>
+                    {moderatedThreadKeys[`${item.marketSlug}:${item.commentId}`] === "hidden" ? (
+                      <div className="for-you-thread-update__moderation">
+                        <strong>Latest reply hidden</strong>
+                        <span>The alert stays here so you can undo the moderation call if needed.</span>
+                        {state.isAdmin && item.latestReplyCommentId ? (
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() =>
+                              void handleRestoreLatestReply(
+                                item.marketSlug,
+                                item.commentId,
+                                item.latestReplyCommentId!,
+                              )
+                            }
+                            disabled={restoringThreadKey === `${item.marketSlug}:${item.commentId}`}
+                          >
+                            {restoringThreadKey === `${item.marketSlug}:${item.commentId}`
+                              ? "Restoring..."
+                              : "Restore reply"}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="for-you-thread-update__actions">
+                        <Link
+                          href={`/markets/${item.marketSlug}#comment-thread-${item.commentId}`}
+                          className="ghost-button"
+                        >
+                          Open thread
+                        </Link>
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() =>
+                            handleCatchUpThread(
+                              item.marketSlug,
+                              item.commentId,
+                              item.totalReplyCount,
+                            )
+                          }
+                        >
+                          Catch up
+                        </button>
+                        {state.isAdmin && item.latestReplyCommentId ? (
+                          <button
+                            type="button"
+                            className="ghost-button comment-card__action--danger"
+                            onClick={() =>
+                              void handleHideLatestReply(
+                                item.marketSlug,
+                                item.commentId,
+                                item.latestReplyCommentId!,
+                              )
+                            }
+                            disabled={hidingThreadKey === `${item.marketSlug}:${item.commentId}`}
+                          >
+                            {hidingThreadKey === `${item.marketSlug}:${item.commentId}`
+                              ? "Hiding..."
+                              : "Hide latest reply"}
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="portfolio-state">
+                Followed threads with new replies will land here so you can jump back into the right market fast.
+              </div>
+            )
+          ) : (
+            <div className="portfolio-state">
+              Sign in to keep reply alerts across devices and pull active market threads back into your feed.
+            </div>
+          )}
+        </section>
+
         <section className="for-you-card for-you-card--compact">
           <div className="for-you-card__head">
             <span className="market-chip">Momentum</span>

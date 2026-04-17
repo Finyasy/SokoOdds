@@ -1,5 +1,7 @@
 # SokoOdds
-Kenya-focused Polymarket-style prediction platform:
+East Africa's Premier Prediction Market.
+
+Predict smarter. Trade the moments that move East Africa.
 
 ## Documentation
 
@@ -71,6 +73,9 @@ The current Playwright coverage in `pnpm test:e2e:web` verifies:
 - wallet activity visibility after funding and payout actions
 - signed-out and signed-in portfolio/account overview states
 - first live order submission from the order ticket
+- header cash/portfolio consistency after funding
+- signed-in header deposit trigger plus utility-menu routes for docs, help, and leaderboard
+- market surfaces stay resilient when portfolio payload sections are missing or incomplete
 
 The local scripts still default to `localhost` for API and engine probes, but the web app should now be reviewed on `127.0.0.1:3000` because that is the host the active Next dev server binds to. If another project is already bound to the same ports on `127.0.0.1`, keep `API_HOST=localhost` and `ENGINE_HOST=localhost` in `.env`, or move the ports in `.env` to avoid collisions.
 

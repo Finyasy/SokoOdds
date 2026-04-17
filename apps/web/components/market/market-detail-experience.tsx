@@ -3,19 +3,11 @@
 import Link from "next/link";
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
-import {
-  fetchPortfolioOrders,
-  type PortfolioOrdersResponse
-} from "@/lib/account-client";
-import type { Market } from "@/lib/mock-data";
+import type { Market, MarketComment, TopHolder } from "@/lib/mock-data";
 import {
   formatClosingLabel,
   formatPercent,
   formatKes,
-  getMarketActivity,
-  getMarketComments,
-  getMarketContextCards,
-  getMarketTopHolders
 } from "@/lib/mock-data";
 import { MarketIdentity } from "./market-identity";
 import { OrderBook } from "./order-book";
@@ -23,11 +15,85 @@ import { OrderBook } from "./order-book";
 type MarketDetailExperienceProps = {
   market: Market;
   relatedMarkets: Market[];
+  comments: MarketComment[];
+  topHolders: TopHolder[];
 };
 
 type DetailTab = "rules" | "context";
 type SocialTab = "comments" | "holders" | "positions" | "activity";
 type IdentityTone = "amber" | "blue" | "violet" | "green";
+
+function appendComment(
+  comments: MarketComment[],
+  nextComment: MarketComment,
+) {
+  if (nextComment.parentCommentId) {
+    return comments.map((comment) =>
+      comment.id === nextComment.parentCommentId
+        ? {
+            ...comment,
+            replies: [...(comment.replies ?? []), { ...nextComment, replies: nextComment.replies ?? [] }],
+          }
+        : comment,
+    );
+  }
+
+  return [{ ...nextComment, replies: nextComment.replies ?? [] }, ...comments];
+}
+
+function replaceComment(
+  comments: MarketComment[],
+  nextComment: MarketComment,
+) {
+  return comments.map((comment) => {
+    if (comment.id === nextComment.id) {
+      return {
+        ...nextComment,
+        replies: comment.replies ?? nextComment.replies ?? [],
+      };
+    }
+
+    if (comment.replies?.length) {
+      return {
+        ...comment,
+        replies: comment.replies.map((reply) =>
+          reply.id === nextComment.id ? { ...nextComment, replies: [] } : reply,
+        ),
+      };
+    }
+
+    return comment;
+  });
+}
+
+function removeComment(
+  comments: MarketComment[],
+  commentId: string,
+) {
+  return comments
+    .filter((comment) => comment.id !== commentId)
+    .map((comment) => ({
+      ...comment,
+      replies: (comment.replies ?? []).filter((reply) => reply.id !== commentId),
+    }));
+}
+
+function findComment(
+  comments: MarketComment[],
+  commentId: string,
+) {
+  for (const comment of comments) {
+    if (comment.id === commentId) {
+      return comment;
+    }
+    const reply = comment.replies?.find((item) => item.id === commentId);
+    if (reply) {
+      return reply;
+    }
+  }
+
+  return null;
+}
 
 function getCommentInitials(author: string) {
   return author
@@ -73,45 +139,150 @@ function MiniIdentity({
   );
 }
 
+function buildMarketContextCards(market: Market) {
+  return [
+    {
+      id: `${market.id}-context-rules`,
+      title: "Additional context",
+      body: market.ruleHighlights[0] ?? `Resolution source: ${market.resolutionSource}`,
+      updatedLabel: "Live rules"
+    },
+    {
+      id: `${market.id}-context-trust`,
+      title: "Why traders care",
+      body: market.trustNotes[0] ?? market.summary,
+      updatedLabel: "Live note"
+    },
+    {
+      id: `${market.id}-context-source`,
+      title: "Resolution source",
+      body: market.resolutionSource,
+      updatedLabel: "Always visible"
+    }
+  ];
+}
+
+function buildMarketActivity(market: Market) {
+  return [
+    {
+      id: `${market.id}-activity-rule`,
+      label: "Rule checkpoint",
+      detail: market.ruleHighlights[0] ?? `Source: ${market.resolutionSource}`,
+      timeLabel: "Rules live"
+    },
+    {
+      id: `${market.id}-activity-source`,
+      label: "Trust note",
+      detail: market.trustNotes[0] ?? market.summary,
+      timeLabel: "Market context"
+    },
+    ...market.trades.slice(0, 3).map((trade, index) => ({
+      id: `${market.id}-activity-trade-${trade.id}-${index}`,
+      label: `${trade.side} print`,
+      detail: `${trade.shares} shares at Ksh ${trade.price.toFixed(2)}`,
+      timeLabel: trade.time
+    }))
+  ];
+}
+
 export function MarketDetailExperience({
   market,
-  relatedMarkets
+  relatedMarkets,
+  comments,
+  topHolders
 }: MarketDetailExperienceProps) {
   const {
     state,
     watchlist,
     recentMarketSlugs,
     feedInteractions,
+    commentThreadFollows,
+    portfolioOrders,
+    openAccountSheet,
     toggleWatchlist,
     notificationPreferences,
     updateNotificationPreference,
+    followCommentThread,
+    unfollowCommentThread,
+    markCommentThreadSeen,
     recordMarketVisit
   } = useOnboarding();
   const [detailTab, setDetailTab] = useState<DetailTab>("rules");
   const [socialTab, setSocialTab] = useState<SocialTab>("comments");
   const [isOrderBookOpen, setIsOrderBookOpen] = useState(false);
-  const [portfolioSnapshot, setPortfolioSnapshot] = useState<PortfolioOrdersResponse | null>(null);
-  const activePortfolioSnapshot = state.isSignedIn ? portfolioSnapshot : null;
-  const comments = useMemo(() => getMarketComments(market), [market]);
-  const topHolders = useMemo(() => getMarketTopHolders(market), [market]);
-  const activity = useMemo(() => getMarketActivity(market), [market]);
-  const contextCards = useMemo(() => getMarketContextCards(market), [market]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [isPostingComment, setIsPostingComment] = useState(false);
+  const [postingReplyId, setPostingReplyId] = useState<string | null>(null);
+  const [marketComments, setMarketComments] = useState<MarketComment[]>(comments);
+  const [likedCommentIds, setLikedCommentIds] = useState<string[]>([]);
+  const [likingCommentId, setLikingCommentId] = useState<string | null>(null);
+  const [hidingCommentId, setHidingCommentId] = useState<string | null>(null);
+  const [restoringCommentId, setRestoringCommentId] = useState<string | null>(null);
+  const [hiddenReplyIds, setHiddenReplyIds] = useState<string[]>([]);
+  const [hiddenReplyMap, setHiddenReplyMap] = useState<Record<string, MarketComment>>({});
+  const activePortfolioSnapshot = state.isSignedIn ? portfolioOrders : null;
+  const totalCommentCount = useMemo(
+    () =>
+      marketComments.reduce(
+        (sum, comment) => sum + 1 + (comment.replies?.length ?? 0),
+        0,
+      ),
+    [marketComments],
+  );
+  const threadAlertCount = useMemo(
+    () =>
+      marketComments.reduce((sum, comment) => {
+        const threadState = commentThreadFollows[market.slug]?.[comment.id];
+        if (!threadState) {
+          return sum;
+        }
+        return sum + Math.max(0, (comment.replies?.length ?? 0) - threadState.lastSeenReplyCount);
+      }, 0),
+    [commentThreadFollows, market.slug, marketComments],
+  );
+  const followedThreads = useMemo(
+    () =>
+      marketComments
+        .filter((comment) => commentThreadFollows[market.slug]?.[comment.id])
+        .map((comment) => {
+          const threadState = commentThreadFollows[market.slug][comment.id];
+          const unreadCount = Math.max(
+            0,
+            (comment.replies?.length ?? 0) - threadState.lastSeenReplyCount,
+          );
+          const latestReply = comment.replies?.[comment.replies.length - 1] ?? null;
+
+          return {
+            comment,
+            unreadCount,
+            latestReply,
+            autoFollowed: threadState.autoFollowed,
+          };
+        })
+        .sort((left, right) => right.unreadCount - left.unreadCount),
+    [commentThreadFollows, market.slug, marketComments],
+  );
+  const activity = useMemo(() => buildMarketActivity(market), [market]);
+  const contextCards = useMemo(() => buildMarketContextCards(market), [market]);
   const isWatchlisted = watchlist.includes(market.slug);
   const livePosition = useMemo(
-    () => activePortfolioSnapshot?.positions.find((position) => position.marketId === market.id) ?? null,
+    () => activePortfolioSnapshot?.positions?.find((position) => position.marketId === market.id) ?? null,
     [activePortfolioSnapshot, market.id]
   );
   const liveExposure = useMemo(
-    () => activePortfolioSnapshot?.markets.find((item) => item.marketId === market.id) ?? null,
+    () => activePortfolioSnapshot?.markets?.find((item) => item.marketId === market.id) ?? null,
     [activePortfolioSnapshot, market.id]
   );
   const relatedMarketSignals = useMemo(
     () =>
       relatedMarkets.map((relatedMarket) => {
         const relatedPosition =
-          activePortfolioSnapshot?.positions.find((position) => position.marketId === relatedMarket.id) ?? null;
+          activePortfolioSnapshot?.positions?.find((position) => position.marketId === relatedMarket.id) ?? null;
         const relatedExposure =
-          activePortfolioSnapshot?.markets.find((item) => item.marketId === relatedMarket.id) ?? null;
+          activePortfolioSnapshot?.markets?.find((item) => item.marketId === relatedMarket.id) ?? null;
         const isRelatedWatchlisted = watchlist.includes(relatedMarket.slug);
 
         return {
@@ -213,9 +384,9 @@ export function MarketDetailExperience({
     recentMarketSlugs
   ]);
   const communityStats = [
-    { label: "Comments", value: String(comments.length) },
+    { label: "Comments", value: String(totalCommentCount) },
     { label: "Top holders", value: String(topHolders.length) },
-    { label: "Watchers", value: `${comments.length * 9 + 14}` },
+    { label: "Watchers", value: `${totalCommentCount * 9 + 14}` },
     { label: "Recent prints", value: String(market.trades.length) }
   ];
   const handleRecordMarketVisit = useEffectEvent((marketSlug: string) => {
@@ -227,31 +398,202 @@ export function MarketDetailExperience({
   }, [market.slug]);
 
   useEffect(() => {
-    if (!state.isSignedIn) {
+    setMarketComments(comments);
+  }, [comments]);
+
+  useEffect(() => {
+    setLikedCommentIds([]);
+    setLikingCommentId(null);
+    setHidingCommentId(null);
+    setRestoringCommentId(null);
+    setHiddenReplyIds([]);
+    setHiddenReplyMap({});
+    setActiveReplyId(null);
+    setReplyDrafts({});
+    setPostingReplyId(null);
+  }, [market.slug]);
+
+  async function handlePostComment(parentCommentId?: string) {
+    const nextBody = (parentCommentId ? replyDrafts[parentCommentId] : commentDraft).trim();
+    if (!nextBody) {
+      setCommentError(parentCommentId ? "Write a reply before posting." : "Write a comment before posting.");
       return;
     }
 
-    let cancelled = false;
-
-    async function loadPortfolioSnapshot() {
-      try {
-        const nextSnapshot = await fetchPortfolioOrders();
-        if (!cancelled) {
-          setPortfolioSnapshot(nextSnapshot);
-        }
-      } catch {
-        if (!cancelled) {
-          setPortfolioSnapshot(null);
-        }
-      }
+    if (!state.isSignedIn) {
+      openAccountSheet();
+      return;
     }
 
-    void loadPortfolioSnapshot();
+    setCommentError(null);
+    if (parentCommentId) {
+      setPostingReplyId(parentCommentId);
+    } else {
+      setIsPostingComment(true);
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [state.isSignedIn, state.phone]);
+    try {
+      const response = await fetch(`/api/markets/${market.slug}/comments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ body: nextBody, parentCommentId: parentCommentId ?? null }),
+      });
+      const payload = (await response.json()) as MarketComment | { error?: string };
+
+      if (!response.ok || !("id" in payload)) {
+        setCommentError(
+          "error" in payload && typeof payload.error === "string"
+            ? payload.error
+            : "Could not post the comment.",
+        );
+        return;
+      }
+
+      setMarketComments((current) => appendComment(current, payload));
+      if (parentCommentId) {
+        setReplyDrafts((current) => ({ ...current, [parentCommentId]: "" }));
+        setActiveReplyId(null);
+        const parentThread = findComment(marketComments, parentCommentId);
+        followCommentThread(
+          market.slug,
+          parentCommentId,
+          (parentThread?.replies?.length ?? 0) + 1,
+          true,
+        );
+      } else {
+        followCommentThread(market.slug, payload.id, 0, true);
+        setCommentDraft("");
+      }
+    } catch {
+      setCommentError(parentCommentId ? "Could not post the reply." : "Could not post the comment.");
+    } finally {
+      if (parentCommentId) {
+        setPostingReplyId(null);
+      } else {
+        setIsPostingComment(false);
+      }
+    }
+  }
+
+  async function handleLikeComment(commentId: string) {
+    if (!state.isSignedIn) {
+      openAccountSheet();
+      return;
+    }
+
+    if (likingCommentId === commentId || likedCommentIds.includes(commentId)) {
+      return;
+    }
+
+    setCommentError(null);
+    setLikingCommentId(commentId);
+
+    try {
+      const response = await fetch(`/api/markets/${market.slug}/comments/${commentId}/like`, {
+        method: "POST",
+      });
+      const payload = (await response.json()) as MarketComment | { error?: string };
+
+      if (!response.ok || !("id" in payload)) {
+        setCommentError(
+          "error" in payload && typeof payload.error === "string"
+            ? payload.error
+            : "Could not like the comment.",
+        );
+        return;
+      }
+
+      setMarketComments((current) => replaceComment(current, payload));
+      setLikedCommentIds((current) => [...current, commentId]);
+    } catch {
+      setCommentError("Could not like the comment.");
+    } finally {
+      setLikingCommentId(null);
+    }
+  }
+
+  async function handleHideComment(commentId: string) {
+    if (!state.isSignedIn) {
+      openAccountSheet();
+      return;
+    }
+
+    if (!state.isAdmin || hidingCommentId === commentId) {
+      return;
+    }
+
+    setCommentError(null);
+    setHidingCommentId(commentId);
+    const existingComment = findComment(marketComments, commentId);
+
+    try {
+      const response = await fetch(`/api/markets/${market.slug}/comments/${commentId}/hide`, {
+        method: "POST",
+      });
+      const payload = (await response.json()) as MarketComment | { error?: string };
+
+      if (!response.ok || !("id" in payload)) {
+        setCommentError(
+          "error" in payload && typeof payload.error === "string"
+            ? payload.error
+            : "Could not hide the comment.",
+        );
+        return;
+      }
+
+      if (existingComment?.parentCommentId) {
+        setHiddenReplyMap((current) =>
+          existingComment ? { ...current, [commentId]: existingComment } : current,
+        );
+        setHiddenReplyIds((current) => (current.includes(commentId) ? current : [...current, commentId]));
+      } else {
+        setMarketComments((current) => removeComment(current, commentId));
+      }
+      setLikedCommentIds((current) => current.filter((id) => id !== commentId));
+    } catch {
+      setCommentError("Could not hide the comment.");
+    } finally {
+      setHidingCommentId(null);
+    }
+  }
+
+  async function handleRestoreComment(commentId: string) {
+    if (!state.isSignedIn) {
+      openAccountSheet();
+      return;
+    }
+
+    if (!state.isAdmin || restoringCommentId === commentId) {
+      return;
+    }
+
+    setCommentError(null);
+    setRestoringCommentId(commentId);
+
+    try {
+      const response = await fetch(`/api/markets/${market.slug}/comments/${commentId}/restore`, {
+        method: "POST",
+      });
+      const payload = (await response.json()) as MarketComment | { error?: string };
+
+      if (!response.ok || !("id" in payload)) {
+        setCommentError(
+          "error" in payload && typeof payload.error === "string"
+            ? payload.error
+            : "Could not restore the comment.",
+        );
+        return;
+      }
+
+      setHiddenReplyIds((current) => current.filter((id) => id !== commentId));
+    } catch {
+      setCommentError("Could not restore the comment.");
+    } finally {
+      setRestoringCommentId(null);
+    }
+  }
 
   return (
     <section className="market-detail-layout">
@@ -399,7 +741,7 @@ export function MarketDetailExperience({
               className={`market-tab${socialTab === "comments" ? " market-tab--active" : ""}`}
               onClick={() => setSocialTab("comments")}
             >
-              Comments ({comments.length})
+              Comments ({totalCommentCount})
             </button>
             <button
               type="button"
@@ -426,61 +768,335 @@ export function MarketDetailExperience({
 
           {socialTab === "comments" ? (
             <div className="comment-shell">
+              {threadAlertCount > 0 ? (
+                <div className="comment-thread-alert" data-testid="comment-thread-alert">
+                  <strong>{threadAlertCount} new thread update{threadAlertCount === 1 ? "" : "s"}</strong>
+                  <span>Tracked replies landed in threads you chose to follow.</span>
+                </div>
+              ) : null}
+              {followedThreads.length ? (
+                <div className="comment-follow-rail" data-testid="comment-follow-rail">
+                  <div className="comment-follow-rail__head">
+                    <strong>Followed threads</strong>
+                    <span>{followedThreads.length} active</span>
+                  </div>
+                  <div className="comment-follow-rail__list">
+                    {followedThreads.map(({ comment, unreadCount, latestReply, autoFollowed }) => (
+                      <article key={comment.id} className="comment-follow-chip">
+                        <div>
+                          <strong>{comment.author}</strong>
+                          <p>{comment.body}</p>
+                          <span>
+                            {unreadCount > 0
+                              ? `${unreadCount} unread repl${unreadCount === 1 ? "y" : "ies"}`
+                              : autoFollowed
+                                ? "Auto-following because you posted here"
+                                : "Up to date"}
+                            {latestReply ? ` · Latest by ${latestReply.author}` : ""}
+                          </span>
+                        </div>
+                        <div className="comment-follow-chip__actions">
+                          <button
+                            type="button"
+                            className="comment-card__action"
+                            onClick={() => {
+                              document
+                                .getElementById(`comment-thread-${comment.id}`)
+                                ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                              if (unreadCount > 0) {
+                                markCommentThreadSeen(
+                                  market.slug,
+                                  comment.id,
+                                  comment.replies?.length ?? 0,
+                                );
+                              }
+                            }}
+                          >
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            className="comment-card__action"
+                            onClick={() => {
+                              markCommentThreadSeen(
+                                market.slug,
+                                comment.id,
+                                comment.replies?.length ?? 0,
+                              );
+                            }}
+                          >
+                            Catch up
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="comment-compose">
-                <input type="text" value="" readOnly placeholder="Add a comment..." />
-                <button type="button" className="primary-button">
+                <input
+                  type="text"
+                  value={commentDraft}
+                  onChange={(event) => setCommentDraft(event.target.value)}
+                  placeholder={state.isSignedIn ? "Add a comment..." : "Sign in to join the discussion"}
+                />
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => void handlePostComment()}
+                  disabled={isPostingComment}
+                >
                   Post
                 </button>
               </div>
+              {commentError ? (
+                <p className="portfolio-inline-note portfolio-inline-note--danger" role="alert">
+                  {commentError}
+                </p>
+              ) : null}
               <div className="comment-toolbar" aria-hidden="true">
                 <span className="comment-toolbar__filter comment-toolbar__filter--active">Newest</span>
                 <span className="comment-toolbar__filter">Holders</span>
                 <span className="comment-toolbar__notice">External links are reviewed before posting.</span>
               </div>
               <div className="comment-list">
-                {comments.map((comment) => (
-                  <article key={comment.id} className="comment-card">
-                    <div className={`comment-card__avatar ${getCommentAvatarTone(comment.author)}`}>
-                      {getCommentInitials(comment.author)}
-                    </div>
-                    <div className="comment-card__body">
-                      <div className="comment-card__head">
-                        <strong>{comment.author}</strong>
-                        <span>{comment.ageLabel}</span>
+                {marketComments.length ? (
+                  marketComments.map((comment) => (
+                    <article key={comment.id} id={`comment-thread-${comment.id}`} className="comment-card">
+                      <div className={`comment-card__avatar ${getCommentAvatarTone(comment.author)}`}>
+                        {getCommentInitials(comment.author)}
                       </div>
-                      <p>{comment.body}</p>
-                      <span className="comment-card__meta">{comment.likes} likes</span>
-                    </div>
-                  </article>
-                ))}
+                      <div className="comment-card__body">
+                        <div className="comment-card__head">
+                          <strong>{comment.author}</strong>
+                          <span>{comment.ageLabel}</span>
+                        </div>
+                        <p>{comment.body}</p>
+                        <div className="comment-card__meta-row">
+                          <span className="comment-card__meta">{comment.likes} likes</span>
+                          <div className="comment-card__actions">
+                            <button
+                              type="button"
+                              className={`comment-card__action${
+                                likedCommentIds.includes(comment.id) ? " comment-card__action--active" : ""
+                              }`}
+                              onClick={() => void handleLikeComment(comment.id)}
+                              disabled={likingCommentId === comment.id}
+                            >
+                              {likedCommentIds.includes(comment.id) ? "Liked" : "Like"}
+                            </button>
+                            <button
+                              type="button"
+                              className={`comment-card__action${
+                                activeReplyId === comment.id ? " comment-card__action--active" : ""
+                              }`}
+                              onClick={() => {
+                                setActiveReplyId((current) => (current === comment.id ? null : comment.id));
+                                setCommentError(null);
+                              }}
+                            >
+                              Reply
+                            </button>
+                            {commentThreadFollows[market.slug]?.[comment.id] ? (
+                              <button
+                                type="button"
+                                className="comment-card__action"
+                                onClick={() => {
+                                  unfollowCommentThread(market.slug, comment.id);
+                                }}
+                              >
+                                Unfollow
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="comment-card__action"
+                                onClick={() => {
+                                  followCommentThread(
+                                    market.slug,
+                                    comment.id,
+                                    comment.replies?.length ?? 0,
+                                  );
+                                }}
+                              >
+                                Follow thread
+                              </button>
+                            )}
+                            {state.isAdmin ? (
+                              <button
+                                type="button"
+                                className="comment-card__action comment-card__action--danger"
+                                onClick={() => void handleHideComment(comment.id)}
+                                disabled={hidingCommentId === comment.id}
+                              >
+                                {hidingCommentId === comment.id ? "Hiding..." : "Hide"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        {commentThreadFollows[market.slug]?.[comment.id] ? (
+                          <div className="comment-thread-meta">
+                            <span>
+                              {commentThreadFollows[market.slug][comment.id].autoFollowed
+                                ? "Following because you posted here"
+                                : "Thread alerts on"}
+                            </span>
+                            {(comment.replies?.length ?? 0) >
+                            commentThreadFollows[market.slug][comment.id].lastSeenReplyCount ? (
+                              <button
+                                type="button"
+                                className="comment-card__action"
+                                onClick={() => {
+                                  markCommentThreadSeen(
+                                    market.slug,
+                                    comment.id,
+                                    comment.replies?.length ?? 0,
+                                  );
+                                }}
+                              >
+                                Mark caught up
+                              </button>
+                            ) : (
+                              <span>Up to date</span>
+                            )}
+                          </div>
+                        ) : null}
+                        {activeReplyId === comment.id ? (
+                          <div className="comment-reply-compose">
+                            <input
+                              type="text"
+                              value={replyDrafts[comment.id] ?? ""}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setReplyDrafts((current) => ({ ...current, [comment.id]: value }));
+                              }}
+                              placeholder={state.isSignedIn ? "Write a reply..." : "Sign in to reply"}
+                            />
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => void handlePostComment(comment.id)}
+                              disabled={postingReplyId === comment.id}
+                            >
+                              {postingReplyId === comment.id ? "Posting..." : "Reply"}
+                            </button>
+                          </div>
+                        ) : null}
+                        {comment.replies?.length ? (
+                          <div className="comment-reply-list">
+                            {comment.replies.map((reply) => (
+                              hiddenReplyIds.includes(reply.id) ? (
+                                <article
+                                  key={reply.id}
+                                  className="comment-card comment-card--reply comment-card--moderated"
+                                  data-testid={`comment-reply-moderated-${reply.id}`}
+                                >
+                                  <div className="comment-card__body">
+                                    <div className="comment-card__head">
+                                      <strong>Reply hidden</strong>
+                                      <span>{hiddenReplyMap[reply.id]?.ageLabel ?? reply.ageLabel}</span>
+                                    </div>
+                                    <p>Only admins can see this reply was moderated inline from the thread.</p>
+                                    <div className="comment-card__meta-row">
+                                      <span className="comment-card__meta">Hidden for readers on this page</span>
+                                      <div className="comment-card__actions">
+                                        <button
+                                          type="button"
+                                          className="comment-card__action"
+                                          onClick={() => void handleRestoreComment(reply.id)}
+                                          disabled={restoringCommentId === reply.id}
+                                        >
+                                          {restoringCommentId === reply.id ? "Restoring..." : "Restore reply"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </article>
+                              ) : (
+                                <article key={reply.id} className="comment-card comment-card--reply">
+                                  <div className={`comment-card__avatar ${getCommentAvatarTone(reply.author)}`}>
+                                    {getCommentInitials(reply.author)}
+                                  </div>
+                                  <div className="comment-card__body">
+                                    <div className="comment-card__head">
+                                      <strong>{reply.author}</strong>
+                                      <span>{reply.ageLabel}</span>
+                                    </div>
+                                    <p>{reply.body}</p>
+                                    <div className="comment-card__meta-row">
+                                      <span className="comment-card__meta">{reply.likes} likes</span>
+                                      <div className="comment-card__actions">
+                                        <button
+                                          type="button"
+                                          className={`comment-card__action${
+                                            likedCommentIds.includes(reply.id) ? " comment-card__action--active" : ""
+                                          }`}
+                                          onClick={() => void handleLikeComment(reply.id)}
+                                          disabled={likingCommentId === reply.id}
+                                        >
+                                          {likedCommentIds.includes(reply.id) ? "Liked" : "Like"}
+                                        </button>
+                                        {state.isAdmin ? (
+                                          <button
+                                            type="button"
+                                            className="comment-card__action comment-card__action--danger"
+                                            onClick={() => void handleHideComment(reply.id)}
+                                            disabled={hidingCommentId === reply.id}
+                                          >
+                                            {hidingCommentId === reply.id ? "Hiding..." : "Hide reply"}
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </article>
+                              )
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="portfolio-state">
+                    No comments yet. Be the first to leave a market note.
+                  </div>
+                )}
               </div>
             </div>
           ) : null}
 
           {socialTab === "holders" ? (
-            <div className="data-list">
-              {topHolders.map((holder) => (
-                <div key={holder.id} className="data-list__row">
-                  <div className="data-list__identity-block">
-                    <MiniIdentity label={holder.name} />
+            topHolders.length ? (
+              <div className="data-list">
+                {topHolders.map((holder) => (
+                  <div key={holder.id} className="data-list__row">
+                    <div className="data-list__identity-block">
+                      <MiniIdentity label={holder.name} />
+                      <div>
+                        <strong>{holder.name}</strong>
+                        <span>{holder.shares} shares</span>
+                      </div>
+                    </div>
                     <div>
-                      <strong>{holder.name}</strong>
-                      <span>{holder.shares} shares</span>
+                      <strong className={`trade-side trade-side--${holder.side.toLowerCase()}`}>
+                        {holder.side}
+                      </strong>
+                      <span>{holder.avgPrice} KES avg</span>
                     </div>
                   </div>
-                  <div>
-                    <strong className={`trade-side trade-side--${holder.side.toLowerCase()}`}>
-                      {holder.side}
-                    </strong>
-                    <span>{holder.avgPrice} KES avg</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="portfolio-state">
+                No public holder summary yet. This market will show top participants once durable
+                positions build up.
+              </div>
+            )
           ) : null}
 
           {socialTab === "positions" ? (
-            <div className="data-list">
+            <div className="data-list" data-testid="market-detail-positions">
               <div className="data-list__row">
                 <div>
                   <strong>Your position</strong>
@@ -608,7 +1224,7 @@ export function MarketDetailExperience({
             <span className="market-chip">For you</span>
             <strong>Why this surfaced</strong>
           </div>
-          <div className="market-personalization-list">
+          <div className="market-personalization-list" data-testid="market-detail-personalization">
             {surfacedReasons.map((item) => (
               <article key={item.label} className="market-personalization-item">
                 <strong>{item.label}</strong>

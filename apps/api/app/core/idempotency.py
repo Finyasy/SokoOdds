@@ -2,41 +2,25 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from threading import Lock
 from typing import Any
+from uuid import uuid4
 
-from fastapi import Request
+from app.models import IdempotencyKey
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class IdempotencyConflictError(Exception):
+    pass
 
 
 @dataclass(frozen=True)
-class IdempotencyRecord:
-    scope: str
-    key: str
-    request_hash: str
+class IdempotentResponse:
     status_code: int
     response_body: dict[str, Any]
-
-
-class InMemoryIdempotencyStore:
-    def __init__(self) -> None:
-        self._records: dict[tuple[str, str], IdempotencyRecord] = {}
-        self._lock = Lock()
-
-    def get(self, scope: str, key: str) -> IdempotencyRecord | None:
-        return self._records.get((scope, key))
-
-    def save(self, record: IdempotencyRecord) -> None:
-        with self._lock:
-            self._records[(record.scope, record.key)] = record
-
-    def clear(self) -> None:
-        with self._lock:
-            self._records.clear()
-
-
-def build_scope(*, user_id: str, route: str) -> str:
-    return f"{user_id}:{route}"
+    idempotency_status: str
 
 
 def make_request_hash(payload: dict[str, Any]) -> str:
@@ -44,5 +28,57 @@ def make_request_hash(payload: dict[str, Any]) -> str:
     return sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def get_idempotency_store(request: Request) -> InMemoryIdempotencyStore:
-    return request.app.state.idempotency_store
+async def get_idempotency_record(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    route: str,
+    idempotency_key: str,
+) -> IdempotencyKey | None:
+    result = await session.execute(
+        select(IdempotencyKey).where(
+            IdempotencyKey.user_id == user_id,
+            IdempotencyKey.route == route,
+            IdempotencyKey.idempotency_key == idempotency_key,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+def replay_idempotent_response(
+    record: IdempotencyKey,
+    *,
+    request_hash: str,
+) -> IdempotentResponse:
+    if record.request_hash != request_hash:
+        raise IdempotencyConflictError(
+            "This idempotency key was already used with a different payload."
+        )
+
+    return IdempotentResponse(
+        status_code=record.response_status,
+        response_body=record.response_body,
+        idempotency_status="replayed",
+    )
+
+
+def build_idempotency_record(
+    *,
+    user_id: str,
+    route: str,
+    idempotency_key: str,
+    request_hash: str,
+    status_code: int,
+    response_body: dict[str, Any],
+    ttl: timedelta,
+) -> IdempotencyKey:
+    return IdempotencyKey(
+        id=str(uuid4()),
+        user_id=user_id,
+        route=route,
+        idempotency_key=idempotency_key,
+        request_hash=request_hash,
+        response_status=status_code,
+        response_body=response_body,
+        expires_at=datetime.now(UTC) + ttl,
+    )

@@ -12,6 +12,7 @@ class AccountUserResponse(BaseModel):
     mpesaPhone: str | None = None
     mpesaVerified: bool
     kycStatus: str
+    isAdmin: bool = False
 
 
 class WalletResponse(BaseModel):
@@ -216,6 +217,54 @@ class FeedInteractionSyncItemRequest(BaseModel):
 
 class FeedInteractionSyncRequest(BaseModel):
     items: list[FeedInteractionSyncItemRequest]
+
+
+class CommentThreadFollowItemResponse(BaseModel):
+    marketSlug: str
+    commentId: str
+    lastSeenReplyCount: int
+    autoFollowed: bool
+
+
+class CommentThreadFollowsResponse(BaseModel):
+    items: list[CommentThreadFollowItemResponse]
+
+
+class CommentThreadNotificationItemResponse(BaseModel):
+    marketSlug: str
+    marketQuestion: str
+    commentId: str
+    commentAuthor: str
+    commentBody: str
+    unreadReplyCount: int
+    totalReplyCount: int
+    autoFollowed: bool
+    latestReplyCommentId: str | None = None
+    latestReplyAuthor: str | None = None
+    latestReplyBody: str | None = None
+    latestReplyAt: str | None = None
+
+
+class CommentThreadNotificationsResponse(BaseModel):
+    items: list[CommentThreadNotificationItemResponse]
+
+
+class CommentThreadFollowUpsertRequest(BaseModel):
+    marketSlug: str = Field(min_length=2, max_length=128)
+    commentId: str = Field(min_length=2, max_length=36)
+    lastSeenReplyCount: int = Field(ge=0)
+    autoFollowed: bool = False
+
+
+class CommentThreadFollowSyncItemRequest(BaseModel):
+    marketSlug: str = Field(min_length=2, max_length=128)
+    commentId: str = Field(min_length=2, max_length=36)
+    lastSeenReplyCount: int = Field(ge=0)
+    autoFollowed: bool = False
+
+
+class CommentThreadFollowSyncRequest(BaseModel):
+    items: list[CommentThreadFollowSyncItemRequest]
 
 
 class KycProfileRequest(BaseModel):

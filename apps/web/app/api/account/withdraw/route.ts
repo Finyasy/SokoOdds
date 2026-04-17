@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -18,11 +20,13 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
+  const idempotencyKey = request.headers.get("Idempotency-Key") ?? randomUUID();
   const apiResponse = await fetch(buildApiServerUrl("/wallet/withdraw"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${sessionToken}`,
       "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify(body),
     cache: "no-store",
@@ -38,5 +42,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(payload, { status: 200 });
+  return NextResponse.json(payload, {
+    status: apiResponse.status,
+    headers: {
+      "X-Idempotency-Status": apiResponse.headers.get("X-Idempotency-Status") ?? "created",
+    },
+  });
 }

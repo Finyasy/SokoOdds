@@ -9,10 +9,10 @@ export default function DocsPage() {
       <main className="site-shell page-stack">
         <section className="page-hero">
           <span className="page-hero__eyebrow market-chip">Documentation</span>
-          <h1>Product docs for contracts, UI direction, and operations.</h1>
+          <h1>Documentation for East Africa's premier prediction market.</h1>
           <p>
-            Use this area for the live product contract surface: API contracts, realtime behavior,
-            UI direction, and trust rules that shape how the platform behaves.
+            Use this area for the live contract surface behind the platform: API contracts,
+            realtime behavior, UI direction, and trust rules that shape how the market behaves.
           </p>
           <div className="filter-row">
             <Link href="/markets" className="ghost-button">
@@ -37,7 +37,7 @@ export default function DocsPage() {
             <h3>How to use this surface</h3>
             <ul className="bullet-list">
               <li>Docs should match the product, not drift from it.</li>
-              <li>Design notes should stay implementation-ready and Kenya-first.</li>
+              <li>Design notes should stay implementation-ready and East Africa-ready.</li>
               <li>Operational docs should make support, wallet, and settlement behavior easy to explain.</li>
             </ul>
           </article>

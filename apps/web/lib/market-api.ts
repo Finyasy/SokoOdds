@@ -1,10 +1,14 @@
 import {
   endingSoonMarkets as fallbackEndingSoonMarkets,
+  getMarketComments as getFallbackMarketComments,
   featuredMarkets as fallbackFeaturedMarkets,
   getMarketBySlug as getFallbackMarketBySlug,
+  getMarketTopHolders as getFallbackMarketTopHolders,
   kenyaPulseMarkets as fallbackKenyaPulseMarkets,
   markets as fallbackMarkets,
-  type Market
+  type Market,
+  type MarketComment,
+  type TopHolder
 } from "@/lib/mock-data";
 
 type HomepageMarketGroups = {
@@ -60,8 +64,15 @@ function getApiBaseUrl() {
 }
 
 async function fetchFromApi<T>(path: string): Promise<T> {
+  return fetchFromApiWithOptions<T>(path, { next: { revalidate: 30 } });
+}
+
+async function fetchFromApiWithOptions<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    next: { revalidate: 30 }
+    ...init,
   });
 
   if (!response.ok) {
@@ -86,6 +97,26 @@ export async function getMarketBySlug(slug: string): Promise<Market | undefined>
     return mergePresentationData(market);
   } catch {
     return getFallbackMarketBySlug(slug);
+  }
+}
+
+export async function getMarketCommentsBySlug(slug: string): Promise<MarketComment[]> {
+  try {
+    return await fetchFromApiWithOptions<MarketComment[]>(`/markets/${slug}/comments`, {
+      cache: "no-store",
+    });
+  } catch {
+    const fallback = getFallbackMarketBySlug(slug);
+    return fallback ? getFallbackMarketComments(fallback) : [];
+  }
+}
+
+export async function getMarketTopHoldersBySlug(slug: string): Promise<TopHolder[]> {
+  try {
+    return await fetchFromApi<TopHolder[]>(`/markets/${slug}/holders`);
+  } catch {
+    const fallback = getFallbackMarketBySlug(slug);
+    return fallback ? getFallbackMarketTopHolders(fallback) : [];
   }
 }
 
