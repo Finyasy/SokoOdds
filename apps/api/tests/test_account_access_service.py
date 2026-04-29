@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from app.integrations.daraja import DarajaConfigurationError
+from app.jobs.payment_followups import run_payment_followup_batch
 from app.models import (
     Base,
     Deposit,
@@ -14,6 +15,7 @@ from app.models import (
     LedgerEntry,
     Market,
     Order,
+    OutboxEvent,
     Position,
     Trade,
     User,
@@ -37,6 +39,7 @@ async def async_session() -> AsyncIterator[AsyncSession]:
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:
+        session.info["session_factory"] = session_factory
         yield session
 
     await engine.dispose()
@@ -111,6 +114,7 @@ async def test_wallet_deposit_credits_verified_wallet(async_session: AsyncSessio
         user_id=onboarded.account.user_id,
         amount=Decimal("500.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
     deposit = await async_session.scalar(
         select(Deposit).where(Deposit.user_id == onboarded.account.user_id)
     )
@@ -119,9 +123,9 @@ async def test_wallet_deposit_credits_verified_wallet(async_session: AsyncSessio
     )
     ledger_count = await async_session.scalar(select(func.count()).select_from(LedgerEntry))
 
-    assert result.status == "completed"
+    assert result.status == "created"
     assert result.requested_amount == Decimal("500.00")
-    assert result.credited_amount == Decimal("500.00")
+    assert result.credited_amount == Decimal("0.00")
     assert deposit is not None
     assert deposit.status == "completed"
     assert wallet is not None
@@ -145,11 +149,13 @@ async def test_wallet_withdrawal_holds_and_completes_for_verified_wallet(
         user_id=onboarded.account.user_id,
         amount=Decimal("500.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
 
     result = await service.initiate_wallet_withdrawal(
         user_id=onboarded.account.user_id,
         amount=Decimal("200.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
     withdrawal = await async_session.scalar(
         select(Withdrawal).where(Withdrawal.user_id == onboarded.account.user_id)
     )
@@ -157,8 +163,8 @@ async def test_wallet_withdrawal_holds_and_completes_for_verified_wallet(
         select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
     )
 
-    assert result.status == "completed"
-    assert result.released_amount == Decimal("200.00")
+    assert result.status == "created"
+    assert result.released_amount == Decimal("0.00")
     assert withdrawal is not None
     assert withdrawal.status == "completed"
     assert wallet is not None
@@ -180,6 +186,7 @@ async def test_large_wallet_withdrawal_enters_review_required(async_session: Asy
         user_id=onboarded.account.user_id,
         amount=Decimal("3000.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
 
     result = await service.initiate_wallet_withdrawal(
         user_id=onboarded.account.user_id,
@@ -217,10 +224,12 @@ async def test_wallet_transactions_feed_includes_verification_deposit_and_withdr
         user_id=onboarded.account.user_id,
         amount=Decimal("500.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
     await service.initiate_wallet_withdrawal(
         user_id=onboarded.account.user_id,
         amount=Decimal("200.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
 
     result = await service.get_wallet_transactions(user_id=onboarded.account.user_id)
 
@@ -467,10 +476,12 @@ async def test_admin_wallet_support_queue_includes_deposits_and_withdrawals(
         user_id=customer.account.user_id,
         amount=Decimal("500.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
     await service.initiate_wallet_withdrawal(
         user_id=customer.account.user_id,
         amount=Decimal("200.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
 
     result = await service.list_admin_wallet_activity(
         admin_user_id=admin.account.user_id,
@@ -500,6 +511,7 @@ async def test_admin_can_reject_review_required_withdrawal(async_session: AsyncS
         user_id=customer.account.user_id,
         amount=Decimal("3000.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
     await service.initiate_wallet_withdrawal(
         user_id=customer.account.user_id,
         amount=Decimal("2600.00"),
@@ -548,6 +560,7 @@ async def test_admin_can_release_review_required_withdrawal(async_session: Async
         user_id=customer.account.user_id,
         amount=Decimal("3000.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
     await service.initiate_wallet_withdrawal(
         user_id=customer.account.user_id,
         amount=Decimal("2600.00"),
@@ -565,15 +578,23 @@ async def test_admin_can_release_review_required_withdrawal(async_session: Async
         decision="approved",
         note=None,
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
     wallet = await async_session.scalar(
         select(Wallet).where(Wallet.user_id == customer.account.user_id)
     )
+    refreshed = await service.list_admin_wallet_activity(
+        admin_user_id=admin.account.user_id,
+        status_filter=None,
+        kind_filter="withdrawal",
+        limit=10,
+    )
 
     assert result.kind == "withdrawal"
-    assert result.status == "completed"
+    assert result.status == "review_required"
     assert result.reviewedByName == "Admin"
     assert result.reviewDecision == "approved"
     assert result.reviewedAt is not None
+    assert refreshed.items[0].status == "completed"
     assert wallet is not None
     assert wallet.available_balance == Decimal("405.00")
     assert wallet.reserved_balance == Decimal("0.00")
@@ -599,23 +620,31 @@ async def test_deposit_request_failure_marks_committed_intent_failed(
     onboarded = await service.onboard_account(first_name="Amina", phone="0712 345 678")
     await service.verify_mpesa(user_id=onboarded.account.user_id, phone="0712 345 678")
 
-    with pytest.raises(WalletFundingError, match="Missing Daraja credentials."):
-        await service.initiate_wallet_deposit(
-            user_id=onboarded.account.user_id,
-            amount=Decimal("500.00"),
-        )
+    result = await service.initiate_wallet_deposit(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("500.00"),
+    )
+    assert result.status == "created"
+
+    processed = await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
 
     deposit = await async_session.scalar(
         select(Deposit).where(Deposit.user_id == onboarded.account.user_id)
+    )
+    outbox_event = await async_session.scalar(
+        select(OutboxEvent).where(OutboxEvent.aggregate_id == deposit.id)  # type: ignore[union-attr]
     )
     wallet = await async_session.scalar(
         select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
     )
 
+    assert processed == 0
     assert deposit is not None
     assert deposit.status == "failed"
     assert deposit.checkout_request_id is None
     assert deposit.result_desc == "Missing Daraja credentials."
+    assert outbox_event is not None
+    assert outbox_event.status == "failed"
     assert wallet is not None
     assert wallet.available_balance == Decimal("5.00")
 
@@ -643,26 +672,175 @@ async def test_withdrawal_dispatch_failure_releases_held_funds(
         user_id=onboarded.account.user_id,
         amount=Decimal("500.00"),
     )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
 
-    with pytest.raises(WalletFundingError, match="Missing B2C credentials."):
-        await service.initiate_wallet_withdrawal(
-            user_id=onboarded.account.user_id,
-            amount=Decimal("200.00"),
-        )
+    result = await service.initiate_wallet_withdrawal(
+        user_id=onboarded.account.user_id,
+        amount=Decimal("200.00"),
+    )
+    assert result.status == "created"
+
+    processed = await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
 
     withdrawal = await async_session.scalar(
         select(Withdrawal).where(Withdrawal.user_id == onboarded.account.user_id)
+    )
+    outbox_event = await async_session.scalar(
+        select(OutboxEvent).where(OutboxEvent.aggregate_id == withdrawal.id)  # type: ignore[union-attr]
     )
     wallet = await async_session.scalar(
         select(Wallet).where(Wallet.user_id == onboarded.account.user_id)
     )
 
+    assert processed == 0
     assert withdrawal is not None
     assert withdrawal.status == "failed"
     assert withdrawal.conversation_id is None
     assert withdrawal.result_desc == "Missing B2C credentials."
+    assert outbox_event is not None
+    assert outbox_event.status == "failed"
     assert wallet is not None
     assert wallet.available_balance == Decimal("505.00")
+    assert wallet.reserved_balance == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_admin_can_retry_failed_deposit_dispatch(
+    async_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+    original_request_stk_push = daraja_client.request_stk_push
+
+    async def fail_stk_push(*, phone: str, amount: str, account_reference: str):
+        del phone, amount, account_reference
+        raise DarajaConfigurationError("Missing Daraja credentials.")
+
+    monkeypatch.setattr(daraja_client, "request_stk_push", fail_stk_push)
+
+    admin = await service.onboard_account(first_name="Admin", phone="0712 345 678")
+    customer = await service.onboard_account(first_name="Amina", phone="0796 000 000")
+    await service.verify_mpesa(user_id=customer.account.user_id, phone="0796 000 000")
+    await service.initiate_wallet_deposit(
+        user_id=customer.account.user_id,
+        amount=Decimal("500.00"),
+    )
+
+    processed = await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
+    assert processed == 0
+
+    queued = await service.list_admin_wallet_activity(
+        admin_user_id=admin.account.user_id,
+        status_filter="failed",
+        kind_filter="deposit",
+        limit=10,
+    )
+    assert queued.items[0].canRetryDispatch is True
+    assert queued.items[0].dispatchAttempts == 1
+
+    monkeypatch.setattr(daraja_client, "request_stk_push", original_request_stk_push)
+
+    retried = await service.retry_payment_dispatch(
+        admin_user_id=admin.account.user_id,
+        activity_id=queued.items[0].id,
+    )
+    processed = await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
+
+    deposit = await async_session.scalar(
+        select(Deposit).where(Deposit.user_id == customer.account.user_id)
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == customer.account.user_id)
+    )
+
+    assert retried.status == "failed"
+    assert retried.canRetryDispatch is False
+    assert processed == 1
+    assert deposit is not None and deposit.status == "completed"
+    assert wallet is not None and wallet.available_balance == Decimal("505.00")
+
+
+@pytest.mark.asyncio
+async def test_admin_can_retry_failed_reviewed_withdrawal_dispatch(
+    async_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AccountAccessService(
+        async_session,
+        session_ttl=timedelta(days=30),
+        verification_credit_amount=Decimal("5.00"),
+    )
+    original_request_b2c_payout = daraja_client.request_b2c_payout
+
+    async def fail_b2c_payout(*, phone: str, amount: str):
+        del phone, amount
+        raise DarajaConfigurationError("Missing B2C credentials.")
+
+    admin = await service.onboard_account(first_name="Admin", phone="0712 345 678")
+    customer = await service.onboard_account(first_name="Amina", phone="0796 000 000")
+    await service.verify_mpesa(user_id=customer.account.user_id, phone="0796 000 000")
+    await service.initiate_wallet_deposit(
+        user_id=customer.account.user_id,
+        amount=Decimal("3000.00"),
+    )
+    await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
+    await service.initiate_wallet_withdrawal(
+        user_id=customer.account.user_id,
+        amount=Decimal("2600.00"),
+    )
+
+    queued = await service.list_admin_wallet_activity(
+        admin_user_id=admin.account.user_id,
+        status_filter="review_required",
+        kind_filter="withdrawal",
+        limit=10,
+    )
+    await service.review_withdrawal(
+        admin_user_id=admin.account.user_id,
+        withdrawal_id=queued.items[0].id,
+        decision="approved",
+        note=None,
+    )
+
+    monkeypatch.setattr(daraja_client, "request_b2c_payout", fail_b2c_payout)
+
+    processed = await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
+    assert processed == 0
+
+    failed_queue = await service.list_admin_wallet_activity(
+        admin_user_id=admin.account.user_id,
+        status_filter="review_required",
+        kind_filter="withdrawal",
+        limit=10,
+    )
+    assert failed_queue.items[0].canRetryDispatch is True
+    assert failed_queue.items[0].dispatchAttempts == 1
+
+    monkeypatch.setattr(daraja_client, "request_b2c_payout", original_request_b2c_payout)
+
+    retried = await service.retry_payment_dispatch(
+        admin_user_id=admin.account.user_id,
+        activity_id=failed_queue.items[0].id,
+    )
+    processed = await run_payment_followup_batch(session_factory=async_session.info["session_factory"])
+
+    withdrawal = await async_session.scalar(
+        select(Withdrawal).where(Withdrawal.user_id == customer.account.user_id)
+    )
+    wallet = await async_session.scalar(
+        select(Wallet).where(Wallet.user_id == customer.account.user_id)
+    )
+
+    assert retried.status == "review_required"
+    assert retried.canRetryDispatch is False
+    assert processed == 1
+    assert withdrawal is not None and withdrawal.status == "completed"
+    assert wallet is not None
+    assert wallet.available_balance == Decimal("405.00")
     assert wallet.reserved_balance == Decimal("0.00")
 
 

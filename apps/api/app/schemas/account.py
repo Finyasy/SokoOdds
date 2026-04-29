@@ -327,6 +327,9 @@ class AdminWalletSupportItemResponse(BaseModel):
     reviewedAt: str | None = None
     reviewedByName: str | None = None
     reviewDecision: str | None = None
+    dispatchAttempts: int | None = None
+    dispatchError: str | None = None
+    canRetryDispatch: bool = False
 
 
 class AdminWalletSupportResponse(BaseModel):

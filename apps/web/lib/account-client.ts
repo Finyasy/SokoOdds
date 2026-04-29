@@ -254,6 +254,9 @@ export type AdminWalletSupportItem = {
   reviewedAt: string | null;
   reviewedByName: string | null;
   reviewDecision: string | null;
+  dispatchAttempts: number | null;
+  dispatchError: string | null;
+  canRetryDispatch: boolean;
 };
 
 export type AdminWalletSupportResponse = {
@@ -602,6 +605,21 @@ export async function reviewAdminWithdrawal(input: {
   const payload = await readJson<AdminWithdrawalReviewResponse & AccountApiErrorShape>(response);
   if (!response.ok || !payload?.id) {
     throw new Error(getErrorMessage(payload, "Could not review the withdrawal."));
+  }
+
+  return payload;
+}
+
+export async function retryAdminPaymentDispatch(input: {
+  withdrawalId: string;
+}): Promise<AdminWalletSupportItem> {
+  const response = await fetch(`/api/account/admin/support/${input.withdrawalId}/retry`, {
+    method: "POST"
+  });
+
+  const payload = await readJson<AdminWalletSupportItem & AccountApiErrorShape>(response);
+  if (!response.ok || !payload?.id) {
+    throw new Error(getErrorMessage(payload, "Could not retry the payment dispatch."));
   }
 
   return payload;

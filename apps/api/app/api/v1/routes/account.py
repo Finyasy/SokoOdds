@@ -556,6 +556,27 @@ async def review_admin_wallet_withdrawal(
     )
 
 
+@router.post(
+    "/admin/wallet/activity/{activity_id}/retry",
+    status_code=status.HTTP_200_OK,
+    response_model=AdminWalletSupportItemResponse,
+)
+async def retry_admin_wallet_dispatch(
+    activity_id: str,
+    account: AuthenticatedAccountDep,
+    account_service: AccountServiceDep,
+) -> AdminWalletSupportItemResponse:
+    try:
+        return await account_service.retry_payment_dispatch(
+            admin_user_id=account.user.id,
+            activity_id=activity_id,
+        )
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except WalletFundingError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.post("/wallet/withdraw/callback", status_code=status.HTTP_200_OK)
 async def receive_wallet_withdraw_callback(
     request: Request,

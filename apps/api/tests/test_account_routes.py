@@ -675,6 +675,34 @@ class FakeAccountService:
             "reviewDecision": "approved",
         }
 
+    async def retry_payment_dispatch(
+        self,
+        *,
+        admin_user_id: str,
+        activity_id: str,
+    ):
+        assert admin_user_id == "user-1"
+        assert activity_id == "withdraw-1"
+        return {
+            "id": "withdraw-1",
+            "userId": "user-2",
+            "firstName": "Amina",
+            "phone": "0796000000",
+            "kind": "withdrawal",
+            "status": "review_required",
+            "title": "M-Pesa withdrawal",
+            "subtitle": "Payout approved and waiting for worker dispatch.",
+            "amountKes": "2600.00",
+            "createdAt": datetime.now(UTC).isoformat(),
+            "updatedAt": datetime.now(UTC).isoformat(),
+            "reviewedAt": datetime.now(UTC).isoformat(),
+            "reviewedByName": "Admin",
+            "reviewDecision": "approved",
+            "dispatchAttempts": 1,
+            "dispatchError": None,
+            "canRetryDispatch": False,
+        }
+
     async def submit_withdrawal_review(
         self,
         *,
@@ -928,8 +956,9 @@ def build_withdrawn_authenticated_account() -> AuthenticatedAccount:
 
 
 def build_client() -> TestClient:
+    fake_service = FakeAccountService()
     app.dependency_overrides.clear()
-    app.dependency_overrides[get_account_access_service] = lambda: FakeAccountService()
+    app.dependency_overrides[get_account_access_service] = lambda: fake_service
     app.dependency_overrides[get_authenticated_account] = build_authenticated_account
     return TestClient(app)
 
@@ -1148,6 +1177,18 @@ def test_admin_wallet_review_rejects_same_key_with_different_payload() -> None:
     assert first.status_code == 200
     assert second.status_code == 409
     assert "different payload" in second.json()["detail"]
+
+
+def test_admin_wallet_support_can_retry_failed_dispatch() -> None:
+    client = build_client()
+
+    response = client.post("/api/v1/admin/wallet/activity/withdraw-1/retry")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "withdraw-1"
+    assert payload["dispatchAttempts"] == 1
+    assert payload["canRetryDispatch"] is False
 
 
 def test_me_returns_authenticated_account_snapshot() -> None:

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useOnboarding } from "@/components/onboarding/onboarding-provider";
 import {
   fetchAdminWalletSupport,
+  retryAdminPaymentDispatch,
   reviewAdminWithdrawal,
   type AdminWalletSupportItem
 } from "@/lib/account-client";
@@ -152,6 +153,24 @@ export function WalletSupportBoard() {
     } catch (reviewError) {
       setError(
         reviewError instanceof Error ? reviewError.message : "Could not review the payout."
+      );
+    } finally {
+      setIsReviewingId(null);
+    }
+  }
+
+  async function handleDispatchRetry(item: AdminWalletSupportItem) {
+    setIsReviewingId(item.id);
+    setError(null);
+
+    try {
+      const updatedItem = await retryAdminPaymentDispatch({ withdrawalId: item.id });
+      setItems((currentItems) =>
+        currentItems.map((currentItem) => (currentItem.id === updatedItem.id ? updatedItem : currentItem))
+      );
+    } catch (retryError) {
+      setError(
+        retryError instanceof Error ? retryError.message : "Could not retry the payment dispatch."
       );
     } finally {
       setIsReviewingId(null);
@@ -315,6 +334,16 @@ export function WalletSupportBoard() {
                 </div>
               ) : null}
 
+              {item.dispatchAttempts || item.dispatchError ? (
+                <div className="admin-queue__audit">
+                  <strong>Dispatch state</strong>
+                  <p>
+                    {item.dispatchAttempts ? `Attempts: ${item.dispatchAttempts}. ` : ""}
+                    {item.dispatchError ?? "Queued for the next worker pass."}
+                  </p>
+                </div>
+              ) : null}
+
               {item.kind === "withdrawal" && item.status === "review_required" ? (
                 <div className="admin-queue__actions">
                   <button
@@ -332,6 +361,17 @@ export function WalletSupportBoard() {
                     disabled={isReviewingId === item.id}
                   >
                     {isReviewingId === item.id ? "Working..." : "Release payout"}
+                  </button>
+                </div>
+              ) : item.canRetryDispatch ? (
+                <div className="admin-queue__actions">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void handleDispatchRetry(item)}
+                    disabled={isReviewingId === item.id}
+                  >
+                    {isReviewingId === item.id ? "Retrying..." : "Retry dispatch"}
                   </button>
                 </div>
               ) : null}

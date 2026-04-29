@@ -25,7 +25,7 @@ from app.core.idempotency import (
     make_request_hash,
     replay_idempotent_response,
 )
-from app.integrations.daraja import B2CPayoutResult, DarajaConfigurationError, daraja_client
+from app.integrations.daraja import DarajaConfigurationError, daraja_client
 from app.models import (
     Deposit,
     KycProfile,
@@ -33,6 +33,7 @@ from app.models import (
     Market,
     MarketComment,
     Order,
+    OutboxEvent,
     Position,
     Trade,
     User,
@@ -90,6 +91,8 @@ ACTIVE_ORDER_STATUSES = {
 }
 FEED_INTERACTION_EVENT_TYPES = {"view", "pause", "open"}
 PAYMENT_IDEMPOTENCY_TTL = timedelta(hours=72)
+PAYMENT_DISPATCH_MAX_ATTEMPTS = 3
+PAYMENT_DISPATCH_BACKOFF_MINUTES = 5
 
 
 class AuthenticationError(Exception):
@@ -275,6 +278,9 @@ class AdminWalletSupportItem:
     reviewed_at: datetime | None = None
     reviewed_by_name: str | None = None
     review_decision: str | None = None
+    dispatch_attempts: int | None = None
+    dispatch_error: str | None = None
+    can_retry_dispatch: bool = False
 
     def to_response_model(self) -> AdminWalletSupportItemResponse:
         return AdminWalletSupportItemResponse(
@@ -292,6 +298,9 @@ class AdminWalletSupportItem:
             reviewedAt=self.reviewed_at.isoformat() if self.reviewed_at is not None else None,
             reviewedByName=self.reviewed_by_name,
             reviewDecision=self.review_decision,
+            dispatchAttempts=self.dispatch_attempts,
+            dispatchError=self.dispatch_error,
+            canRetryDispatch=self.can_retry_dispatch,
         )
 
 
@@ -855,41 +864,19 @@ class AccountAccessService:
                     credited_at=None,
                 )
             )
-
-        try:
-            stk_result = await daraja_client.request_stk_push(
-                phone=user.mpesa_phone,
-                amount=f"{requested_amount:.2f}",
-                account_reference=deposit_reference,
-            )
-        except DarajaConfigurationError as exc:
-            await self._mark_deposit_request_failed(
-                deposit_reference=deposit_reference,
-                error_message=str(exc),
-            )
-            raise WalletFundingError(str(exc)) from exc
-        except Exception as exc:  # pragma: no cover
-            error_message = "Could not initiate the M-Pesa prompt."
-            await self._mark_deposit_request_failed(
-                deposit_reference=deposit_reference,
-                error_message=error_message,
-            )
-            raise WalletFundingError(error_message) from exc
-
-        await self._mark_deposit_request_dispatched(
-            deposit_reference=deposit_reference,
-            merchant_request_id=stk_result.merchant_request_id,
-            checkout_request_id=stk_result.checkout_request_id,
-            customer_message=stk_result.customer_message,
-        )
-
-        if settings.daraja_mode == "stub" and settings.daraja_stub_auto_complete:
-            await self.process_stk_callback(
-                callback_payload=build_stub_callback_payload(
-                    merchant_request_id=stk_result.merchant_request_id,
-                    checkout_request_id=stk_result.checkout_request_id,
-                    amount=requested_amount,
-                    phone=user.mpesa_phone,
+            self.session.add(
+                OutboxEvent(
+                    id=str(uuid4()),
+                    topic="wallet.deposit.dispatch_requested",
+                    aggregate_type="deposit",
+                    aggregate_id=deposit_reference,
+                    payload={
+                        "deposit_reference": deposit_reference,
+                        "user_id": user.id,
+                        "amount": f"{requested_amount:.2f}",
+                        "phone": user.mpesa_phone,
+                    },
+                    status="pending",
                 )
             )
 
@@ -978,49 +965,25 @@ class AccountAccessService:
                     )
                 )
 
-        payout_result: B2CPayoutResult | None = None
+            if not requires_review:
+                self.session.add(
+                    OutboxEvent(
+                        id=str(uuid4()),
+                        topic="wallet.withdrawal.dispatch_requested",
+                        aggregate_type="withdrawal",
+                        aggregate_id=withdrawal_reference,
+                        payload={
+                            "withdrawal_reference": withdrawal_reference,
+                            "user_id": user.id,
+                            "amount": f"{requested_amount:.2f}",
+                            "phone": user.mpesa_phone,
+                        },
+                        status="pending",
+                    )
+                )
+
         if not requires_review:
-            try:
-                payout_result = await daraja_client.request_b2c_payout(
-                    phone=user.mpesa_phone,
-                    amount=f"{requested_amount:.2f}",
-                )
-            except DarajaConfigurationError as exc:
-                await self._fail_withdrawal_dispatch(
-                    withdrawal_reference=withdrawal_reference,
-                    error_message=str(exc),
-                )
-                raise WalletFundingError(str(exc)) from exc
-            except Exception as exc:  # pragma: no cover
-                error_message = "Could not initiate the M-Pesa withdrawal."
-                await self._fail_withdrawal_dispatch(
-                    withdrawal_reference=withdrawal_reference,
-                    error_message=error_message,
-                )
-                raise WalletFundingError(error_message) from exc
-
-            customer_message = payout_result.response_description
-            await self._mark_withdrawal_request_dispatched(
-                withdrawal_reference=withdrawal_reference,
-                conversation_id=payout_result.conversation_id,
-                originator_conversation_id=payout_result.originator_conversation_id,
-                result_desc=customer_message,
-            )
-
-        if (
-            settings.daraja_mode == "stub"
-            and settings.daraja_stub_auto_complete
-            and not requires_review
-            and payout_result is not None
-        ):
-            await self.process_b2c_callback(
-                callback_payload=build_stub_b2c_callback_payload(
-                    conversation_id=payout_result.conversation_id,
-                    originator_conversation_id=payout_result.originator_conversation_id,
-                    amount=requested_amount,
-                    phone=user.mpesa_phone,
-                )
-            )
+            customer_message = "M-Pesa withdrawal queued for dispatch."
 
         withdrawal = await self.get_withdrawal_by_reference(
             user_id=user_id,
@@ -1221,6 +1184,188 @@ class AccountAccessService:
                 return
 
             withdrawal.result_desc = error_message
+
+    async def _load_payment_dispatch_state(self) -> dict[tuple[str, str], dict[str, Any]]:
+        result = await self.session.execute(
+            select(OutboxEvent).where(OutboxEvent.topic.in_((
+                "wallet.deposit.dispatch_requested",
+                "wallet.withdrawal.dispatch_requested",
+            )))
+        )
+        states: dict[tuple[str, str], dict[str, Any]] = {}
+        for event in result.scalars().all():
+            key = (event.aggregate_type, event.aggregate_id)
+            existing = states.get(key)
+            if existing is None or existing["created_at"] < event.created_at:
+                payload = dict(event.payload)
+                states[key] = {
+                    "status": event.status,
+                    "attempts": int(payload.get("attempts", 0) or 0),
+                    "error": payload.get("error"),
+                    "created_at": event.created_at,
+                }
+        return states
+
+    async def _load_payment_dispatch_state_for(
+        self,
+        *,
+        aggregate_type: str,
+        aggregate_id: str,
+    ) -> dict[str, Any] | None:
+        states = await self._load_payment_dispatch_state()
+        return states.get((aggregate_type, aggregate_id))
+
+    async def _requeue_payment_outbox_event(
+        self,
+        *,
+        aggregate_type: str,
+        aggregate_id: str,
+    ) -> None:
+        result = await self.session.execute(
+            select(OutboxEvent)
+            .where(
+                OutboxEvent.aggregate_type == aggregate_type,
+                OutboxEvent.aggregate_id == aggregate_id,
+                OutboxEvent.topic.in_((
+                    "wallet.deposit.dispatch_requested",
+                    "wallet.withdrawal.dispatch_requested",
+                )),
+            )
+            .order_by(OutboxEvent.created_at.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        event = result.scalar_one_or_none()
+        if event is None:
+            raise WalletFundingError("Dispatch event was not found for this payment activity.")
+        if event.status != "failed":
+            raise WalletFundingError("Only failed dispatch events can be retried.")
+
+        payload = dict(event.payload)
+        attempts = int(payload.get("attempts", 0) or 0)
+        if attempts >= PAYMENT_DISPATCH_MAX_ATTEMPTS:
+            raise WalletFundingError("Dispatch retries are exhausted for this payment activity.")
+
+        payload["error"] = None
+        payload["nextAttemptAt"] = datetime.now(UTC).isoformat()
+        payload["manualRetryRequestedAt"] = datetime.now(UTC).isoformat()
+        event.payload = payload
+        event.status = "pending"
+
+    async def dispatch_deposit_request(self, *, deposit_reference: str) -> bool:
+        result = await self.session.execute(select(Deposit).where(Deposit.id == deposit_reference))
+        deposit = result.scalar_one_or_none()
+        if deposit is None:
+            raise WalletFundingError("Deposit intent was not found for dispatch.")
+        if deposit.status not in {"created", "failed"}:
+            return False
+        if deposit.status == "failed" and deposit.checkout_request_id is not None:
+            return False
+
+        try:
+            stk_result = await daraja_client.request_stk_push(
+                phone=deposit.phone,
+                amount=f"{deposit.amount:.2f}",
+                account_reference=deposit.id,
+            )
+        except DarajaConfigurationError as exc:
+            await self._mark_deposit_request_failed(
+                deposit_reference=deposit.id,
+                error_message=str(exc),
+            )
+            raise WalletFundingError(str(exc)) from exc
+        except Exception as exc:  # pragma: no cover
+            error_message = "Could not initiate the M-Pesa prompt."
+            await self._mark_deposit_request_failed(
+                deposit_reference=deposit.id,
+                error_message=error_message,
+            )
+            raise WalletFundingError(error_message) from exc
+
+        await self._mark_deposit_request_dispatched(
+            deposit_reference=deposit.id,
+            merchant_request_id=stk_result.merchant_request_id,
+            checkout_request_id=stk_result.checkout_request_id,
+            customer_message=stk_result.customer_message,
+        )
+
+        if settings.daraja_mode == "stub" and settings.daraja_stub_auto_complete:
+            await self.process_stk_callback(
+                callback_payload=build_stub_callback_payload(
+                    merchant_request_id=stk_result.merchant_request_id,
+                    checkout_request_id=stk_result.checkout_request_id,
+                    amount=deposit.amount,
+                    phone=deposit.phone,
+                )
+            )
+        return True
+
+    async def dispatch_withdrawal_request(self, *, withdrawal_reference: str) -> bool:
+        result = await self.session.execute(
+            select(Withdrawal).where(Withdrawal.id == withdrawal_reference)
+        )
+        withdrawal = result.scalar_one_or_none()
+        if withdrawal is None:
+            raise WalletFundingError("Withdrawal intent was not found for dispatch.")
+        if withdrawal.status not in {"created", "review_required"}:
+            return False
+
+        try:
+            payout_result = await daraja_client.request_b2c_payout(
+                phone=withdrawal.phone,
+                amount=f"{withdrawal.amount:.2f}",
+            )
+        except DarajaConfigurationError as exc:
+            if withdrawal.status == "created":
+                await self._fail_withdrawal_dispatch(
+                    withdrawal_reference=withdrawal.id,
+                    error_message=str(exc),
+                )
+            else:
+                await self._mark_reviewed_withdrawal_dispatch_failed(
+                    withdrawal_id=withdrawal.id,
+                    error_message=str(exc),
+                )
+            raise WalletFundingError(str(exc)) from exc
+        except Exception as exc:  # pragma: no cover
+            error_message = "Could not initiate the M-Pesa withdrawal."
+            if withdrawal.status == "created":
+                await self._fail_withdrawal_dispatch(
+                    withdrawal_reference=withdrawal.id,
+                    error_message=error_message,
+                )
+            else:
+                await self._mark_reviewed_withdrawal_dispatch_failed(
+                    withdrawal_id=withdrawal.id,
+                    error_message=error_message,
+                )
+            raise WalletFundingError(error_message) from exc
+
+        if withdrawal.status == "created":
+            await self._mark_withdrawal_request_dispatched(
+                withdrawal_reference=withdrawal.id,
+                conversation_id=payout_result.conversation_id,
+                originator_conversation_id=payout_result.originator_conversation_id,
+                result_desc=payout_result.response_description,
+            )
+        else:
+            await self._mark_reviewed_withdrawal_dispatched(
+                withdrawal_id=withdrawal.id,
+                conversation_id=payout_result.conversation_id,
+                originator_conversation_id=payout_result.originator_conversation_id,
+                result_desc=withdrawal.result_desc or payout_result.response_description,
+            )
+
+        if settings.daraja_mode == "stub" and settings.daraja_stub_auto_complete:
+            await self.process_b2c_callback(
+                callback_payload=build_stub_b2c_callback_payload(
+                    conversation_id=payout_result.conversation_id,
+                    originator_conversation_id=payout_result.originator_conversation_id,
+                    amount=withdrawal.amount,
+                    phone=withdrawal.phone,
+                )
+            )
+        return True
 
     @asynccontextmanager
     async def _transaction(self):
@@ -2143,6 +2288,7 @@ class AccountAccessService:
         normalized_limit = max(1, min(limit, 50))
         items: list[AdminWalletSupportItem] = []
         reviewer_map: dict[str, User] = {}
+        dispatch_state_by_ref = await self._load_payment_dispatch_state()
 
         if kind_filter in (None, "all", "withdrawal"):
             reviewer_ids_result = await self.session.execute(
@@ -2170,7 +2316,11 @@ class AccountAccessService:
             deposit_query = deposit_query.order_by(desc(Deposit.created_at)).limit(normalized_limit)
             deposits_result = await self.session.execute(deposit_query)
             items.extend(
-                self._build_admin_deposit_support_item(deposit, user)
+                self._build_admin_deposit_support_item(
+                    deposit,
+                    user,
+                    dispatch_state_by_ref.get(("deposit", deposit.id)),
+                )
                 for deposit, user in deposits_result.all()
             )
 
@@ -2187,6 +2337,7 @@ class AccountAccessService:
                     withdrawal,
                     user,
                     reviewer_map.get(withdrawal.reviewed_by_user_id or ""),
+                    dispatch_state_by_ref.get(("withdrawal", withdrawal.id)),
                 )
                 for withdrawal, user in withdrawals_result.all()
             )
@@ -2203,6 +2354,66 @@ class AccountAccessService:
             items=[item.to_response_model() for item in items[:normalized_limit]]
         )
 
+    async def retry_payment_dispatch(
+        self,
+        *,
+        admin_user_id: str,
+        activity_id: str,
+    ) -> AdminWalletSupportItemResponse:
+        await self._assert_admin_user(admin_user_id)
+
+        async with self._transaction():
+            deposit_result = await self.session.execute(
+                select(Deposit, User).join(User, User.id == Deposit.user_id).where(Deposit.id == activity_id)
+            )
+            deposit_row = deposit_result.one_or_none()
+            if deposit_row is not None:
+                deposit, user = deposit_row
+                await self._requeue_payment_outbox_event(
+                    aggregate_type="deposit",
+                    aggregate_id=deposit.id,
+                )
+                dispatch_state = await self._load_payment_dispatch_state_for(
+                    aggregate_type="deposit",
+                    aggregate_id=deposit.id,
+                )
+                return self._build_admin_deposit_support_item(
+                    deposit,
+                    user,
+                    dispatch_state,
+                ).to_response_model()
+
+            withdrawal_result = await self.session.execute(
+                select(Withdrawal, User)
+                .join(User, User.id == Withdrawal.user_id)
+                .where(Withdrawal.id == activity_id)
+            )
+            withdrawal_row = withdrawal_result.one_or_none()
+            if withdrawal_row is None:
+                raise WalletFundingError("Payment activity was not found.")
+
+            withdrawal, user = withdrawal_row
+            await self._requeue_payment_outbox_event(
+                aggregate_type="withdrawal",
+                aggregate_id=withdrawal.id,
+            )
+            reviewer: User | None = None
+            if withdrawal.reviewed_by_user_id is not None:
+                reviewer_result = await self.session.execute(
+                    select(User).where(User.id == withdrawal.reviewed_by_user_id)
+                )
+                reviewer = reviewer_result.scalar_one_or_none()
+            dispatch_state = await self._load_payment_dispatch_state_for(
+                aggregate_type="withdrawal",
+                aggregate_id=withdrawal.id,
+            )
+            return self._build_admin_withdrawal_support_item(
+                withdrawal,
+                user,
+                reviewer,
+                dispatch_state,
+            ).to_response_model()
+
     async def review_withdrawal(
         self,
         *,
@@ -2215,7 +2426,6 @@ class AccountAccessService:
         if normalized_decision not in {"approved", "rejected"}:
             raise WalletFundingError("Withdrawal decision must be approved or rejected.")
 
-        payout_result: B2CPayoutResult | None = None
         approved_amount = Decimal("0.00")
         approved_phone = ""
         approval_note = note.strip() if note and note.strip() else None
@@ -2280,48 +2490,22 @@ class AccountAccessService:
                 approved_amount = quantize_money(withdrawal.amount)
                 approved_phone = withdrawal.phone
                 withdrawal.result_desc = approval_note
-
-        if normalized_decision == "approved":
-            try:
-                payout_result = await daraja_client.request_b2c_payout(
-                    phone=approved_phone,
-                    amount=f"{approved_amount:.2f}",
+                self.session.add(
+                    OutboxEvent(
+                        id=str(uuid4()),
+                        topic="wallet.withdrawal.dispatch_requested",
+                        aggregate_type="withdrawal",
+                        aggregate_id=withdrawal.id,
+                        payload={
+                            "withdrawal_reference": withdrawal.id,
+                            "user_id": withdrawal.user_id,
+                            "amount": f"{approved_amount:.2f}",
+                            "phone": approved_phone,
+                            "source": "admin_review",
+                        },
+                        status="pending",
+                    )
                 )
-            except DarajaConfigurationError as exc:
-                await self._mark_reviewed_withdrawal_dispatch_failed(
-                    withdrawal_id=withdrawal_id,
-                    error_message=str(exc),
-                )
-                raise WalletFundingError(str(exc)) from exc
-            except Exception as exc:  # pragma: no cover
-                error_message = "Could not release the M-Pesa withdrawal."
-                await self._mark_reviewed_withdrawal_dispatch_failed(
-                    withdrawal_id=withdrawal_id,
-                    error_message=error_message,
-                )
-                raise WalletFundingError(error_message) from exc
-
-            await self._mark_reviewed_withdrawal_dispatched(
-                withdrawal_id=withdrawal_id,
-                conversation_id=payout_result.conversation_id,
-                originator_conversation_id=payout_result.originator_conversation_id,
-                result_desc=approval_note or payout_result.response_description,
-            )
-
-        if (
-            normalized_decision == "approved"
-            and payout_result is not None
-            and settings.daraja_mode == "stub"
-            and settings.daraja_stub_auto_complete
-        ):
-            await self.process_b2c_callback(
-                callback_payload=build_stub_b2c_callback_payload(
-                    conversation_id=payout_result.conversation_id,
-                    originator_conversation_id=payout_result.originator_conversation_id,
-                    amount=approved_amount,
-                    phone=approved_phone,
-                )
-            )
 
         refreshed_result = await self.session.execute(
             select(Withdrawal, User)
@@ -2495,6 +2679,8 @@ class AccountAccessService:
             subtitle = "Top-up confirmed and added to your available balance."
         elif deposit.status == "failed":
             subtitle = deposit.result_desc or "The M-Pesa prompt did not complete."
+        elif deposit.status == "created":
+            subtitle = "Top-up queued for dispatch to M-Pesa."
         else:
             subtitle = "M-Pesa prompt sent. Waiting for confirmation from Safaricom."
 
@@ -2511,8 +2697,14 @@ class AccountAccessService:
     def _build_withdrawal_activity(self, withdrawal: Withdrawal) -> WalletTransactionItem:
         if withdrawal.status == "completed":
             subtitle = "Payout completed to your verified M-Pesa number."
+        elif withdrawal.status == "created":
+            subtitle = "Funds are reserved while the M-Pesa payout is queued for dispatch."
         elif withdrawal.status == "review_required":
-            subtitle = "Funds are reserved while the payout waits for manual review."
+            subtitle = (
+                "Payout approved and queued for dispatch."
+                if withdrawal.reviewed_at is not None
+                else "Funds are reserved while the payout waits for manual review."
+            )
         elif withdrawal.status == "failed":
             subtitle = "Payout failed and the held amount was released back to your wallet."
         else:
@@ -2542,12 +2734,17 @@ class AccountAccessService:
         )
 
     def _build_admin_deposit_support_item(
-        self, deposit: Deposit, user: User
+        self,
+        deposit: Deposit,
+        user: User,
+        dispatch_state: dict[str, Any] | None = None,
     ) -> AdminWalletSupportItem:
         if deposit.status == "completed":
             subtitle = f"Top-up confirmed for {deposit.phone}."
         elif deposit.status == "failed":
             subtitle = deposit.result_desc or "The M-Pesa prompt did not complete."
+        elif deposit.status == "created":
+            subtitle = f"Top-up intent created for {deposit.phone}. Waiting for worker dispatch."
         else:
             subtitle = (
                 deposit.customer_message
@@ -2567,15 +2764,33 @@ class AccountAccessService:
             amount=quantize_money(deposit.amount),
             created_at=deposit.created_at,
             updated_at=updated_at,
+            dispatch_attempts=dispatch_state.get("attempts") if dispatch_state else None,
+            dispatch_error=cast(str | None, dispatch_state.get("error")) if dispatch_state else None,
+            can_retry_dispatch=bool(
+                dispatch_state
+                and dispatch_state.get("status") == "failed"
+                and deposit.status == "failed"
+                and dispatch_state.get("attempts", 0) < PAYMENT_DISPATCH_MAX_ATTEMPTS
+            ),
         )
 
     def _build_admin_withdrawal_support_item(
-        self, withdrawal: Withdrawal, user: User, reviewer: User | None = None
+        self,
+        withdrawal: Withdrawal,
+        user: User,
+        reviewer: User | None = None,
+        dispatch_state: dict[str, Any] | None = None,
     ) -> AdminWalletSupportItem:
         if withdrawal.status == "completed":
             subtitle = f"Payout completed to {withdrawal.phone}."
+        elif withdrawal.status == "created":
+            subtitle = "Payout approved and queued for worker dispatch."
         elif withdrawal.status == "review_required":
-            subtitle = "Funds are reserved while this payout waits for manual review."
+            subtitle = (
+                "Payout approved and waiting for worker dispatch."
+                if withdrawal.reviewed_at is not None
+                else "Funds are reserved while this payout waits for manual review."
+            )
         elif withdrawal.status == "failed":
             subtitle = "Payout failed and the held amount was released back to the wallet."
         else:
@@ -2600,11 +2815,20 @@ class AccountAccessService:
                 "approved"
                 if (
                     withdrawal.reviewed_at is not None
-                    and withdrawal.status in {"pending", "completed"}
+                    and withdrawal.status in {"created", "review_required", "pending", "completed"}
                 )
                 else "rejected"
                 if withdrawal.reviewed_at is not None and withdrawal.status == "failed"
                 else None
+            ),
+            dispatch_attempts=dispatch_state.get("attempts") if dispatch_state else None,
+            dispatch_error=cast(str | None, dispatch_state.get("error")) if dispatch_state else None,
+            can_retry_dispatch=bool(
+                dispatch_state
+                and dispatch_state.get("status") == "failed"
+                and withdrawal.reviewed_at is not None
+                and withdrawal.status == "review_required"
+                and dispatch_state.get("attempts", 0) < PAYMENT_DISPATCH_MAX_ATTEMPTS
             ),
         )
 
