@@ -111,6 +111,7 @@ Current shipped behavior:
 - the web app now includes an admin market-comment review queue plus signed-in persistence for followed comment threads and catch-up state
 - the `For you` discovery surface now includes cross-market reply alerts for followed threads, backed by the account session
 - admins can now hide and restore replies directly inside the market-detail thread view without leaving the conversation
+- the market-detail ticket now supports real position-backed sell orders for held `YES` and `NO` shares instead of a visual-only sell mode
 
 Still pending in later sprints:
 

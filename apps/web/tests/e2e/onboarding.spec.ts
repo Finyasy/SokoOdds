@@ -310,11 +310,12 @@ test("first-time account setup can reach the M-Pesa verification success state",
 test("signed-in market detail can post, reply to, and like comments through the live API", async ({
   page
 }) => {
+  const marketUrl = "/markets/nairobi-governor-bill-sign-before-june";
   const phone = buildUniquePhone();
   const commentBody = `Comment from Playwright ${Date.now()}`;
   const replyBody = `Reply from Playwright ${Date.now()}`;
 
-  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+  await page.goto(marketUrl);
 
   await page.getByRole("button", { name: "Maybe later" }).click();
   await page.getByRole("button", { name: "Create account to trade" }).click();
@@ -354,7 +355,7 @@ test("signed-in market detail can post, reply to, and like comments through the 
   await expect(createdReply.getByRole("button", { name: "Liked" })).toBeVisible();
   await expect(createdReply).toContainText("1 likes");
 
-  await page.reload();
+  await page.goto(`${marketUrl}?refresh=${Date.now()}`);
   await expect(page.locator(".comment-card", { hasText: commentBody }).first()).toBeVisible();
   await expect(page.locator(".comment-card--reply", { hasText: replyBody }).first()).toBeVisible();
 });
@@ -420,10 +421,10 @@ test("followed threads show live unread replies and can be caught up", async ({
       responderThread.locator(".comment-card--reply", { hasText: replyBody }).first(),
     ).toBeVisible();
   } finally {
-    await responderContext.close();
+    await responderContext.close().catch(() => undefined);
   }
 
-  await page.reload();
+  await page.goto(`${marketUrl}?refresh=${Date.now()}`);
 
   const reloadedSocialSection = page.locator(".market-tab-shell", { hasText: "Comments (" }).first();
   const followedRail = page.getByTestId("comment-follow-rail");
@@ -437,7 +438,7 @@ test("followed threads show live unread replies and can be caught up", async ({
   await expect(page.getByTestId("comment-thread-alert")).toHaveCount(0);
   await expect(followedThreadChip).toContainText("Auto-following because you posted here");
 
-  await page.reload();
+  await page.goto(`${marketUrl}?refresh=${Date.now()}`);
   await expect(page.getByTestId("comment-thread-alert")).toHaveCount(0);
   await expect(
     page.getByTestId("comment-follow-rail").locator(".comment-follow-chip", { hasText: commentBody }).first(),
@@ -497,7 +498,7 @@ test("for-you thread updates stay aligned with live followed replies", async ({
       responderThread.locator(".comment-card--reply", { hasText: replyBody }).first(),
     ).toBeVisible();
   } finally {
-    await responderContext.close();
+    await responderContext.close().catch(() => undefined);
   }
 
   await page.goto("/markets");
@@ -917,6 +918,169 @@ test("submitted orders stay in sync across ticket, market detail, and portfolio"
   await expect(page.getByTestId("portfolio-orders")).toContainText("Nairobi mobility bill");
   await expect(page.getByTestId("portfolio-market-exposure")).toContainText("Nairobi mobility bill");
   await expect(page.getByTestId("portfolio-reserved-order-value")).toContainText("Ksh 4.96");
+});
+
+test("a signed-in holder can place a sell order and see committed shares in portfolio", async ({
+  page
+}) => {
+  const phone = buildUniquePhone();
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("sokoodds.whatsappPromptShownSession", "1");
+  });
+  const account = {
+    user: {
+      id: "holder-1",
+      firstName: "Brian",
+      phone,
+      mpesaPhone: phone,
+      mpesaVerified: true,
+      kycStatus: "approved",
+      isAdmin: false
+    },
+    wallet: {
+      currency: "KES",
+      availableBalanceKes: "5.00",
+      reservedBalanceKes: "0.00"
+    }
+  };
+  let portfolioFetchCount = 0;
+
+  await page.route("**/api/account/portfolio/orders", async (route) => {
+    portfolioFetchCount += 1;
+    const hasLiveSellOrder = portfolioFetchCount > 1;
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        account,
+        exposure: {
+          openOrderCount: hasLiveSellOrder ? 1 : 0,
+          reservedOrderValueKes: "0.00"
+        },
+        items: hasLiveSellOrder
+          ? [
+              {
+                id: "sell-order-1",
+                marketId: "demo-market-kenya-election",
+                marketSlug: "nairobi-governor-bill-sign-before-june",
+                marketLabel: "Nairobi mobility bill",
+                marketQuestion: "Will the Nairobi mobility bill be signed before June?",
+                side: "YES",
+                direction: "SELL",
+                price: "0.62",
+                quantity: "8.00",
+                reservedAmountKes: "0.00",
+                status: "submitted",
+                createdAt: "2026-04-29T08:00:00.000Z"
+              }
+            ]
+          : [],
+        positions: [
+          {
+            marketId: "demo-market-kenya-election",
+            marketSlug: "nairobi-governor-bill-sign-before-june",
+            marketLabel: "Nairobi mobility bill",
+            marketQuestion: "Will the Nairobi mobility bill be signed before June?",
+            side: "YES",
+            shares: "12.00",
+            averageEntryPriceKes: "0.44",
+            markPriceKes: "0.62",
+            costBasisKes: "5.28",
+            marketValueKes: "7.44",
+            unrealizedPnlKes: "2.16",
+            realizedPnlKes: "0.00",
+            updatedAt: "2026-04-29T08:00:00.000Z"
+          }
+        ],
+        fills: [],
+        markets: hasLiveSellOrder
+          ? [
+              {
+                marketId: "demo-market-kenya-election",
+                marketSlug: "nairobi-governor-bill-sign-before-june",
+                marketLabel: "Nairobi mobility bill",
+                marketQuestion: "Will the Nairobi mobility bill be signed before June?",
+                activeOrderCount: 1,
+                reservedAmountKes: "0.00",
+                totalQuantity: "8.00",
+                averageEntryPriceKes: "0.62",
+                latestYesPriceKes: "0.62",
+                latestNoPriceKes: "0.38"
+              }
+            ]
+          : [],
+        recentPrints: []
+      })
+    });
+  });
+
+  await page.route("**/api/orders", async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      headers: {
+        "X-Idempotency-Status": "created"
+      },
+      body: JSON.stringify({
+        order_id: "sell-order-1",
+        status: "submitted",
+        market_id: "demo-market-kenya-election",
+        reserved_amount: "0.00",
+        available_balance: "5.00",
+        reserved_balance: "0.00"
+      })
+    });
+  });
+
+  await page.route("**/api/account/transactions", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        account,
+        items: []
+      })
+    });
+  });
+
+  await page.route("**/api/account/kyc", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "null"
+    });
+  });
+
+  await page.goto("/markets/nairobi-governor-bill-sign-before-june");
+
+  const maybeLaterButton = page.getByRole("button", { name: "Maybe later" });
+  if (await maybeLaterButton.isVisible().catch(() => false)) {
+    await maybeLaterButton.click();
+  }
+  await page.getByRole("button", { name: "Create account to trade" }).click();
+  await page.getByLabel("First name").fill("Brian");
+  await page.getByLabel("M-Pesa number").fill(phone);
+  await page.getByRole("button", { name: "Continue to wallet setup" }).click();
+  await page.getByRole("button", { name: "Send KES 5 verification" }).click();
+  await expect(page.getByTestId("wallet-verification-success")).toBeVisible({
+    timeout: 5000
+  });
+  await page.getByRole("button", { name: "Back to market" }).click();
+  await page.getByRole("button", { name: "Sell" }).click();
+  await expect(page.getByRole("button", { name: "Sell 8 YES shares" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Sell 8 YES shares" }).click();
+
+  await expect(page.getByTestId("order-ticket-success")).toContainText("resting 8 YES shares");
+
+  await page.goto("/portfolio");
+
+  await expect(page.getByTestId("portfolio-orders")).toContainText("SELL YES");
+  await expect(page.getByTestId("portfolio-orders")).toContainText("8.00 shares committed");
+  await expect(page.getByTestId("portfolio-market-exposure")).toContainText(
+    "8.00 shares committed on sells"
+  );
 });
 
 test("markets for-you hub personalizes after wallet verification and check-in", async ({ page }) => {

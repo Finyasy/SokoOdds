@@ -76,7 +76,7 @@ Date: `2026-03-29`
   - `/Users/bryanbosire/projects/SokoOdds/apps/web/lib/mock-data.ts`
 - The dropdown and wallet flows use real app states, but deposit actions still open the onboarding flow rather than a full backend cash ledger journey.
 - Discovery hero artwork is intentionally limited to the flagship trend contracts so the board does not get noisy.
-- The order ticket still exposes `Sell` as a visual mode only. Live sell-side order handling is not wired end-to-end yet.
+- The order ticket now supports position-backed sell orders end to end for held `YES` or `NO` shares, without reserving extra wallet cash up front.
 
 ## Important Implementation Notes
 
@@ -112,7 +112,7 @@ Date: `2026-03-29`
 
 ## Recommended Next Steps
 
-1. Wire true sell-side order handling into the ticket and portfolio surfaces so the `Sell` mode stops being presentation-only.
-2. Add browser coverage for inline reply moderation on market detail in addition to the discovery-alert moderation flow.
-3. Wire deposit, withdrawal, and cash history into a fuller wallet ledger surface rather than onboarding-only flows.
-4. Replace the remaining mock-only related-market and market-context detail once backend detail endpoints are available.
+1. Add browser coverage for the live sell-side ticket path in addition to the current buy-flow coverage.
+2. Wire deposit, withdrawal, and cash history into a fuller wallet ledger surface rather than onboarding-only flows.
+3. Replace the remaining mock-only related-market and market-context detail once backend detail endpoints are available.
+4. Deepen portfolio exposure summaries so resting sell orders surface committed shares as clearly as resting buy orders surface reserved cash.

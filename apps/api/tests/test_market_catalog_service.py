@@ -284,6 +284,38 @@ async def test_orphaned_comment_author_uses_safe_fallback_label(
 
 
 @pytest.mark.asyncio
+async def test_get_market_comments_returns_latest_fifty_threads(
+    async_session: AsyncSession,
+) -> None:
+    await seed_market_with_users(async_session)
+    service = MarketCatalogService(async_session)
+    base_time = datetime.now(UTC) - timedelta(hours=2)
+
+    async_session.add_all(
+        [
+            MarketComment(
+                id=f"thread-{index}",
+                market_id="market-1",
+                user_id="user-1",
+                body=f"Thread number {index}",
+                likes=0,
+                created_at=base_time + timedelta(minutes=index),
+            )
+            for index in range(55)
+        ]
+    )
+    await async_session.commit()
+
+    comments = await service.get_market_comments("nairobi-governor-bill-sign-before-june")
+
+    assert comments is not None
+    assert len(comments) == 50
+    assert comments[0].body == "Thread number 54"
+    assert comments[-1].body == "Thread number 5"
+    assert all(comment.body != "Thread number 4" for comment in comments)
+
+
+@pytest.mark.asyncio
 async def test_reply_to_reply_is_rejected(async_session: AsyncSession) -> None:
     await seed_market_with_users(async_session)
     service = MarketCatalogService(async_session)

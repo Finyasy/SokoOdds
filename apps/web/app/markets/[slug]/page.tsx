@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_noStore as noStore } from "next/cache";
 import { notFound } from "next/navigation";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -19,6 +20,7 @@ export default async function MarketDetailPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  noStore();
   const { slug } = await params;
   const [market, comments, topHolders] = await Promise.all([
     getMarketBySlug(slug),

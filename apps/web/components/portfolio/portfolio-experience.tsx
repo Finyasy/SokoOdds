@@ -13,6 +13,8 @@ import {
 } from "@/lib/account-client";
 import { formatKes, getMarketBySlug } from "@/lib/mock-data";
 
+const ACTIVE_ORDER_STATUSES = new Set(["submitted", "accepted", "partially_filled"]);
+
 function formatDateLabel(value: string) {
   return new Intl.DateTimeFormat("en-KE", {
     day: "numeric",
@@ -63,6 +65,22 @@ function formatAlertTone(priority: number) {
     return "medium";
   }
   return "low";
+}
+
+function formatOrderExposureBreakdown(input: {
+  buyReservedKes: number;
+  sellCommittedShares: number;
+}) {
+  const parts: string[] = [];
+
+  if (input.buyReservedKes > 0) {
+    parts.push(`Ksh ${input.buyReservedKes.toFixed(2)} reserved on buys`);
+  }
+  if (input.sellCommittedShares > 0) {
+    parts.push(`${input.sellCommittedShares.toFixed(2)} shares committed on sells`);
+  }
+
+  return parts.join(" · ");
 }
 
 type PortfolioSnapshot = {
@@ -145,6 +163,30 @@ export function PortfolioExperience() {
   const marketExposure = useMemo(() => snapshot.orders?.markets ?? [], [snapshot.orders]);
   const recentFills = useMemo(() => snapshot.orders?.fills ?? [], [snapshot.orders]);
   const recentPrints = useMemo(() => snapshot.orders?.recentPrints ?? [], [snapshot.orders]);
+  const orderExposureBreakdown = useMemo(() => {
+    const breakdown = new Map<string, { buyReservedKes: number; sellCommittedShares: number }>();
+
+    orderItems.forEach((item) => {
+      if (!ACTIVE_ORDER_STATUSES.has(item.status)) {
+        return;
+      }
+
+      const current = breakdown.get(item.marketId) ?? {
+        buyReservedKes: 0,
+        sellCommittedShares: 0,
+      };
+
+      if (item.direction === "BUY") {
+        current.buyReservedKes += Number(item.reservedAmountKes);
+      } else {
+        current.sellCommittedShares += Number(item.quantity);
+      }
+
+      breakdown.set(item.marketId, current);
+    });
+
+    return breakdown;
+  }, [orderItems]);
   const topFeedSignals = useMemo(() => {
     const marketLabels = new Map<string, { label: string; detail: string }>();
 
@@ -220,7 +262,14 @@ export function PortfolioExperience() {
           positionMatch
             ? `${positionMatch.side} ${positionMatch.shares} shares live · P&L ${positionMatch.unrealizedPnlKes.startsWith("-") ? "" : "+"}${positionMatch.unrealizedPnlKes}`
             : exposureMatch
-              ? `${exposureMatch.activeOrderCount} live orders · reserved Ksh ${exposureMatch.reservedAmountKes}`
+              ? `${exposureMatch.activeOrderCount} live orders · ${
+                  formatOrderExposureBreakdown(
+                    orderExposureBreakdown.get(exposureMatch.marketId) ?? {
+                      buyReservedKes: Number(exposureMatch.reservedAmountKes),
+                      sellCommittedShares: 0,
+                    }
+                  ) || `Ksh ${exposureMatch.reservedAmountKes} reserved`
+                }`
               : latestPrint
                 ? `${latestPrint.side} trading at Ksh ${latestPrint.priceKes} · ${latestPrint.timeLabel}`
                 : "Strong repeat interest from your feed behavior.";
@@ -286,7 +335,7 @@ export function PortfolioExperience() {
         ...item,
         tone: formatAlertTone(item.priority),
       }));
-  }, [feedInteractions, marketExposure, positions, recentPrints]);
+  }, [feedInteractions, marketExposure, orderExposureBreakdown, positions, recentPrints]);
 
   if (!isHydrated || isSyncingAccount) {
     return (
@@ -464,14 +513,19 @@ export function PortfolioExperience() {
                     {item.direction} {item.side} · {item.quantity} shares at Ksh {item.price}
                   </span>
                 </div>
-                <div className="portfolio-order-item__amount">
-                  <strong>Ksh {item.reservedAmountKes}</strong>
-                  <span className={`portfolio-activity-item__status portfolio-activity-item__status--${item.status}`}>
-                    {item.status.replace(/_/g, " ")}
-                  </span>
-                </div>
-              </article>
-            ))}
+                  <div className="portfolio-order-item__amount">
+                    <strong>Ksh {item.reservedAmountKes}</strong>
+                    <span>
+                      {item.direction === "SELL"
+                        ? `${item.quantity} shares committed`
+                        : `${item.quantity} shares resting`}
+                    </span>
+                    <span className={`portfolio-activity-item__status portfolio-activity-item__status--${item.status}`}>
+                      {item.status.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                </article>
+              ))}
           </div>
         ) : (
           <div className="portfolio-state">
@@ -588,7 +642,14 @@ export function PortfolioExperience() {
                     </span>
                   </div>
                   <div className="portfolio-order-item__amount">
-                    <strong>Ksh {market.reservedAmountKes}</strong>
+                    <strong>
+                      {formatOrderExposureBreakdown(
+                        orderExposureBreakdown.get(market.marketId) ?? {
+                          buyReservedKes: Number(market.reservedAmountKes),
+                          sellCommittedShares: 0,
+                        }
+                      ) || `Ksh ${market.reservedAmountKes}`}
+                    </strong>
                     <span>
                       YES {market.latestYesPriceKes} · NO {market.latestNoPriceKes}
                     </span>

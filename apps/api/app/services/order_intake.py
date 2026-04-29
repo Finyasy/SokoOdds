@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from app.core.database import get_async_session
 from app.core.idempotency import make_request_hash
-from app.models import IdempotencyKey, LedgerEntry, Market, Order, OutboxEvent, Wallet
+from app.models import IdempotencyKey, LedgerEntry, Market, Order, OutboxEvent, Position, Wallet
 from app.schemas.orders import OrderCreateRequest
 from fastapi import Depends
 from sqlalchemy import select
@@ -27,6 +27,10 @@ class IdempotencyConflictError(Exception):
 
 
 class InsufficientFundsError(Exception):
+    pass
+
+
+class InsufficientPositionError(Exception):
     pass
 
 
@@ -107,13 +111,26 @@ class OrderIntakeService:
                 raise MarketNotTradableError("This market is not accepting new orders.")
 
             wallet = await self._get_or_create_wallet_for_update(user_id)
-            reserved_amount = quantize_money(order_request.price * order_request.quantity)
+            reserved_amount = Decimal("0.00")
 
-            if wallet.available_balance < reserved_amount:
-                raise InsufficientFundsError("Insufficient available balance for this order.")
+            if order_request.direction == "BUY":
+                reserved_amount = quantize_money(order_request.price * order_request.quantity)
 
-            wallet.available_balance = quantize_money(wallet.available_balance - reserved_amount)
-            wallet.reserved_balance = quantize_money(wallet.reserved_balance + reserved_amount)
+                if wallet.available_balance < reserved_amount:
+                    raise InsufficientFundsError("Insufficient available balance for this order.")
+
+                wallet.available_balance = quantize_money(wallet.available_balance - reserved_amount)
+                wallet.reserved_balance = quantize_money(wallet.reserved_balance + reserved_amount)
+            else:
+                available_shares = await self._get_available_sell_shares_for_update(
+                    user_id=user_id,
+                    market_id=order_request.market_id,
+                    side=order_request.side,
+                )
+                if available_shares < quantize_money(order_request.quantity):
+                    raise InsufficientPositionError(
+                        f"Insufficient {order_request.side} shares available for this sell order."
+                    )
 
             order_id = str(uuid4())
             response_body = {
@@ -140,20 +157,21 @@ class OrderIntakeService:
                     idempotency_key=idempotency_key,
                 )
             )
-            self.session.add(
-                LedgerEntry(
-                    id=str(uuid4()),
-                    user_id=user_id,
-                    entry_type="ORDER_RESERVE",
-                    amount=reserved_amount,
-                    currency=wallet.currency,
-                    reference_type="order",
-                    reference_id=order_id,
-                    available_balance_after=wallet.available_balance,
-                    reserved_balance_after=wallet.reserved_balance,
-                    note=f"Reserved funds for order {order_id}",
+            if order_request.direction == "BUY":
+                self.session.add(
+                    LedgerEntry(
+                        id=str(uuid4()),
+                        user_id=user_id,
+                        entry_type="ORDER_RESERVE",
+                        amount=reserved_amount,
+                        currency=wallet.currency,
+                        reference_type="order",
+                        reference_id=order_id,
+                        available_balance_after=wallet.available_balance,
+                        reserved_balance_after=wallet.reserved_balance,
+                        note=f"Reserved funds for order {order_id}",
+                    )
                 )
-            )
             self.session.add(
                 OutboxEvent(
                     id=str(uuid4()),
@@ -258,6 +276,45 @@ class OrderIntakeService:
         self.session.add(wallet)
         await self.session.flush()
         return wallet
+
+    async def _get_available_sell_shares_for_update(
+        self,
+        *,
+        user_id: str,
+        market_id: str,
+        side: str,
+    ) -> Decimal:
+        position_result = await self.session.execute(
+            select(Position)
+            .where(
+                Position.user_id == user_id,
+                Position.market_id == market_id,
+                Position.side == side,
+            )
+            .with_for_update()
+        )
+        position = position_result.scalar_one_or_none()
+        if position is None:
+            return Decimal("0.00")
+
+        active_order_result = await self.session.execute(
+            select(Order)
+            .where(
+                Order.user_id == user_id,
+                Order.market_id == market_id,
+                Order.side == side,
+                Order.direction == "SELL",
+                Order.status.in_(("submitted", "accepted", "partially_filled")),
+            )
+            .with_for_update()
+        )
+        reserved_shares = Decimal("0.00")
+        for order in active_order_result.scalars():
+            reserved_shares = quantize_money(
+                reserved_shares + quantize_money(order.quantity - order.filled_quantity)
+            )
+
+        return quantize_money(position.shares - reserved_shares)
 
     async def _get_market(self, market_id: str) -> Market | None:
         result = await self.session.execute(select(Market).where(Market.id == market_id))

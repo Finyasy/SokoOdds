@@ -124,14 +124,20 @@ async def apply_trade_executed(
         if buyer_wallet.reserved_balance < Decimal("0.00"):
             raise TradeResultError("Buyer reserved balance would become negative.")
 
-        seller_wallet.reserved_balance = quantize_money(
-            seller_wallet.reserved_balance - notional_amount
-        )
-        if seller_wallet.reserved_balance < Decimal("0.00"):
-            raise TradeResultError("Seller reserved balance would become negative.")
-        seller_wallet.available_balance = quantize_money(
-            seller_wallet.available_balance + notional_amount + notional_amount
-        )
+        seller_had_cash_reserve = seller_order.reserved_amount > Decimal("0.00")
+        if seller_had_cash_reserve:
+            seller_wallet.reserved_balance = quantize_money(
+                seller_wallet.reserved_balance - notional_amount
+            )
+            if seller_wallet.reserved_balance < Decimal("0.00"):
+                raise TradeResultError("Seller reserved balance would become negative.")
+            seller_wallet.available_balance = quantize_money(
+                seller_wallet.available_balance + notional_amount + notional_amount
+            )
+        else:
+            seller_wallet.available_balance = quantize_money(
+                seller_wallet.available_balance + notional_amount
+            )
 
         _apply_fill_to_order(buyer_order, quantity=event.quantity, notional_amount=notional_amount)
         _apply_fill_to_order(seller_order, quantity=event.quantity, notional_amount=notional_amount)
@@ -182,22 +188,23 @@ async def apply_trade_executed(
                 note=f"Reserved funds consumed for buy fill {event.trade_id}",
             )
         )
-        session.add(
-            LedgerEntry(
-                id=str(uuid4()),
-                user_id=event.seller_id,
-                entry_type="ORDER_RESERVE_RELEASE",
-                amount=notional_amount,
-                currency=seller_wallet.currency,
-                reference_type="trade",
-                reference_id=event.trade_id,
-                available_balance_after=quantize_money(
-                    seller_wallet.available_balance - notional_amount
-                ),
-                reserved_balance_after=seller_wallet.reserved_balance,
-                note=f"Released reserved funds for sell fill {event.trade_id}",
+        if seller_had_cash_reserve:
+            session.add(
+                LedgerEntry(
+                    id=str(uuid4()),
+                    user_id=event.seller_id,
+                    entry_type="ORDER_RESERVE_RELEASE",
+                    amount=notional_amount,
+                    currency=seller_wallet.currency,
+                    reference_type="trade",
+                    reference_id=event.trade_id,
+                    available_balance_after=quantize_money(
+                        seller_wallet.available_balance - notional_amount
+                    ),
+                    reserved_balance_after=seller_wallet.reserved_balance,
+                    note=f"Released reserved funds for sell fill {event.trade_id}",
+                )
             )
-        )
         session.add(
             LedgerEntry(
                 id=str(uuid4()),
@@ -284,9 +291,10 @@ def _apply_fill_to_order(order: Order, *, quantity: Decimal, notional_amount: De
         raise TradeResultError("Trade quantity exceeds the remaining order quantity.")
 
     order.filled_quantity = updated_filled_quantity
-    order.reserved_amount = quantize_money(order.reserved_amount - notional_amount)
-    if order.reserved_amount < Decimal("0.00"):
-        raise TradeResultError("Order reserved amount would become negative.")
+    if order.reserved_amount > Decimal("0.00"):
+        order.reserved_amount = quantize_money(order.reserved_amount - notional_amount)
+        if order.reserved_amount < Decimal("0.00"):
+            raise TradeResultError("Order reserved amount would become negative.")
     order.status = (
         "filled" if order.filled_quantity >= quantize_money(order.quantity) else "partially_filled"
     )

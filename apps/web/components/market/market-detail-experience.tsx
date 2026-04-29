@@ -193,6 +193,7 @@ export function MarketDetailExperience({
 }: MarketDetailExperienceProps) {
   const {
     state,
+    isHydrated,
     watchlist,
     recentMarketSlugs,
     feedInteractions,
@@ -223,6 +224,31 @@ export function MarketDetailExperience({
   const [restoringCommentId, setRestoringCommentId] = useState<string | null>(null);
   const [hiddenReplyIds, setHiddenReplyIds] = useState<string[]>([]);
   const [hiddenReplyMap, setHiddenReplyMap] = useState<Record<string, MarketComment>>({});
+  const stableWatchlist = useMemo(() => (isHydrated ? watchlist : []), [isHydrated, watchlist]);
+  const stableRecentMarketSlugs = useMemo(
+    () => (isHydrated ? recentMarketSlugs : []),
+    [isHydrated, recentMarketSlugs],
+  );
+  const stableFeedInteractions = useMemo(
+    () => (isHydrated ? feedInteractions : {}),
+    [feedInteractions, isHydrated],
+  );
+  const stableCommentThreadFollows = useMemo(
+    () => (isHydrated ? commentThreadFollows : {}),
+    [commentThreadFollows, isHydrated],
+  );
+  const stableNotificationPreferences = useMemo(
+    () =>
+      isHydrated
+        ? notificationPreferences
+        : {
+            dailyPulse: true,
+            priceMoves: true,
+            resolutionSoon: true,
+            newDrops: false,
+          },
+    [isHydrated, notificationPreferences],
+  );
   const activePortfolioSnapshot = state.isSignedIn ? portfolioOrders : null;
   const totalCommentCount = useMemo(
     () =>
@@ -235,20 +261,20 @@ export function MarketDetailExperience({
   const threadAlertCount = useMemo(
     () =>
       marketComments.reduce((sum, comment) => {
-        const threadState = commentThreadFollows[market.slug]?.[comment.id];
-        if (!threadState) {
+        const stableThreadState = stableCommentThreadFollows[market.slug]?.[comment.id];
+        if (!stableThreadState) {
           return sum;
         }
-        return sum + Math.max(0, (comment.replies?.length ?? 0) - threadState.lastSeenReplyCount);
+        return sum + Math.max(0, (comment.replies?.length ?? 0) - stableThreadState.lastSeenReplyCount);
       }, 0),
-    [commentThreadFollows, market.slug, marketComments],
+    [market.slug, marketComments, stableCommentThreadFollows],
   );
   const followedThreads = useMemo(
     () =>
       marketComments
-        .filter((comment) => commentThreadFollows[market.slug]?.[comment.id])
+        .filter((comment) => stableCommentThreadFollows[market.slug]?.[comment.id])
         .map((comment) => {
-          const threadState = commentThreadFollows[market.slug][comment.id];
+          const threadState = stableCommentThreadFollows[market.slug][comment.id];
           const unreadCount = Math.max(
             0,
             (comment.replies?.length ?? 0) - threadState.lastSeenReplyCount,
@@ -263,11 +289,11 @@ export function MarketDetailExperience({
           };
         })
         .sort((left, right) => right.unreadCount - left.unreadCount),
-    [commentThreadFollows, market.slug, marketComments],
+    [market.slug, marketComments, stableCommentThreadFollows],
   );
   const activity = useMemo(() => buildMarketActivity(market), [market]);
   const contextCards = useMemo(() => buildMarketContextCards(market), [market]);
-  const isWatchlisted = watchlist.includes(market.slug);
+  const isWatchlisted = stableWatchlist.includes(market.slug);
   const livePosition = useMemo(
     () => activePortfolioSnapshot?.positions?.find((position) => position.marketId === market.id) ?? null,
     [activePortfolioSnapshot, market.id]
@@ -283,7 +309,7 @@ export function MarketDetailExperience({
           activePortfolioSnapshot?.positions?.find((position) => position.marketId === relatedMarket.id) ?? null;
         const relatedExposure =
           activePortfolioSnapshot?.markets?.find((item) => item.marketId === relatedMarket.id) ?? null;
-        const isRelatedWatchlisted = watchlist.includes(relatedMarket.slug);
+        const isRelatedWatchlisted = stableWatchlist.includes(relatedMarket.slug);
 
         return {
           market: relatedMarket,
@@ -303,7 +329,7 @@ export function MarketDetailExperience({
                 : `${formatKes(relatedMarket.volumeKes)} vol.`,
         };
       }),
-    [activePortfolioSnapshot, relatedMarkets, watchlist]
+    [activePortfolioSnapshot, relatedMarkets, stableWatchlist]
   );
   const activityFeed = useMemo(
     () =>
@@ -315,7 +341,7 @@ export function MarketDetailExperience({
       })),
     [market]
   );
-  const feedSignal = feedInteractions[market.slug];
+  const feedSignal = stableFeedInteractions[market.slug];
   const surfacedReasons = useMemo(() => {
     const items: Array<{ label: string; detail: string }> = [];
 
@@ -345,7 +371,7 @@ export function MarketDetailExperience({
       });
     }
 
-    if (recentMarketSlugs.includes(market.slug)) {
+    if (stableRecentMarketSlugs.includes(market.slug)) {
       items.push({
         label: "Part of your recent run",
         detail: "You viewed this recently, so it stays near the top while the story is moving."
@@ -359,7 +385,7 @@ export function MarketDetailExperience({
       });
     }
 
-    if (notificationPreferences.priceMoves) {
+    if (stableNotificationPreferences.priceMoves) {
       items.push({
         label: "Price alerts enabled",
         detail: "This market is connected to your alert preferences for move-based follow-up."
@@ -380,8 +406,8 @@ export function MarketDetailExperience({
     liveExposure,
     livePosition,
     market.slug,
-    notificationPreferences.priceMoves,
-    recentMarketSlugs
+    stableNotificationPreferences.priceMoves,
+    stableRecentMarketSlugs
   ]);
   const communityStats = [
     { label: "Comments", value: String(totalCommentCount) },
@@ -897,7 +923,7 @@ export function MarketDetailExperience({
                             >
                               Reply
                             </button>
-                            {commentThreadFollows[market.slug]?.[comment.id] ? (
+                            {stableCommentThreadFollows[market.slug]?.[comment.id] ? (
                               <button
                                 type="button"
                                 className="comment-card__action"
@@ -934,15 +960,15 @@ export function MarketDetailExperience({
                             ) : null}
                           </div>
                         </div>
-                        {commentThreadFollows[market.slug]?.[comment.id] ? (
+                        {stableCommentThreadFollows[market.slug]?.[comment.id] ? (
                           <div className="comment-thread-meta">
                             <span>
-                              {commentThreadFollows[market.slug][comment.id].autoFollowed
+                              {stableCommentThreadFollows[market.slug][comment.id].autoFollowed
                                 ? "Following because you posted here"
                                 : "Thread alerts on"}
                             </span>
                             {(comment.replies?.length ?? 0) >
-                            commentThreadFollows[market.slug][comment.id].lastSeenReplyCount ? (
+                            stableCommentThreadFollows[market.slug][comment.id].lastSeenReplyCount ? (
                               <button
                                 type="button"
                                 className="comment-card__action"

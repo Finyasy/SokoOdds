@@ -80,14 +80,39 @@ class MarketCatalogService:
         market = result.scalar_one_or_none()
         if not market:
             return None
-        comment_rows = await self.session.execute(
+
+        root_comment_rows = await self.session.execute(
             select(MarketComment, User)
             .outerjoin(User, User.id == MarketComment.user_id)
-            .where(MarketComment.market_id == market.id, MarketComment.hidden_at.is_(None))
-            .order_by(MarketComment.created_at.asc())
+            .where(
+                MarketComment.market_id == market.id,
+                MarketComment.hidden_at.is_(None),
+                MarketComment.parent_comment_id.is_(None),
+            )
+            .order_by(desc(MarketComment.created_at))
             .limit(50)
         )
-        comments = _build_comment_tree([(comment, user) for comment, user in comment_rows.all()])
+        root_rows = list(root_comment_rows.all())
+        root_comment_ids = [comment.id for comment, _user in root_rows]
+
+        reply_rows: list[tuple[MarketComment, User | None]] = []
+        if root_comment_ids:
+            reply_comment_rows = await self.session.execute(
+                select(MarketComment, User)
+                .outerjoin(User, User.id == MarketComment.user_id)
+                .where(
+                    MarketComment.market_id == market.id,
+                    MarketComment.hidden_at.is_(None),
+                    MarketComment.parent_comment_id.in_(root_comment_ids),
+                )
+                .order_by(MarketComment.created_at.asc())
+            )
+            reply_rows = list(reply_comment_rows.all())
+
+        comments = _build_comment_tree([
+            *root_rows,
+            *reply_rows,
+        ])
         return comments or _build_market_comments(market)
 
     async def list_admin_market_comments(

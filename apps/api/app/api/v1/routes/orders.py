@@ -9,6 +9,7 @@ from app.services.account_access import AuthenticatedAccount, get_optional_authe
 from app.services.order_intake import (
     IdempotencyConflictError,
     InsufficientFundsError,
+    InsufficientPositionError,
     MarketNotTradableError,
     OrderIntakeService,
     UnknownMarketError,
@@ -64,6 +65,8 @@ async def create_order(
     except MarketNotTradableError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except InsufficientFundsError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except InsufficientPositionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return JSONResponse(

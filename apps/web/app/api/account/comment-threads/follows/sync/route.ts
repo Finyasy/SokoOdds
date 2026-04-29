@@ -17,7 +17,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sign in before syncing thread follows." }, { status: 401 });
   }
 
-  const body = await request.json();
+  const rawBody = await request.text();
+  let body: { items?: unknown[] } = { items: [] };
+
+  if (rawBody.trim().length > 0) {
+    try {
+      body = JSON.parse(rawBody) as { items?: unknown[] };
+    } catch {
+      return NextResponse.json(
+        { error: "Could not sync thread follows." },
+        { status: 400 },
+      );
+    }
+  }
 
   const apiResponse = await fetch(buildApiServerUrl("/comment-threads/follows/sync"), {
     method: "POST",

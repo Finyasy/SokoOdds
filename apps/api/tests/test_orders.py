@@ -10,6 +10,7 @@ from app.models import User, UserSession, Wallet
 from app.services.account_access import AuthenticatedAccount, get_optional_authenticated_account
 from app.services.order_intake import (
     IdempotencyConflictError,
+    InsufficientPositionError,
     OrderSubmissionResult,
     get_order_intake_service,
 )
@@ -59,8 +60,34 @@ class FakeOrderService:
         return result
 
 
+class PositionAwareFakeOrderService(FakeOrderService):
+    async def submit_order(
+        self,
+        *,
+        user_id: str,
+        route: str,
+        idempotency_key: str,
+        order_request: Any,
+    ) -> OrderSubmissionResult:
+        if order_request.direction == "SELL":
+            raise InsufficientPositionError("Insufficient YES shares available for this sell order.")
+        return await super().submit_order(
+            user_id=user_id,
+            route=route,
+            idempotency_key=idempotency_key,
+            order_request=order_request,
+        )
+
+
 def build_client() -> TestClient:
     fake_service = FakeOrderService(records={})
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_order_intake_service] = lambda: fake_service
+    return TestClient(app)
+
+
+def build_position_aware_client() -> TestClient:
+    fake_service = PositionAwareFakeOrderService(records={})
     app.dependency_overrides.clear()
     app.dependency_overrides[get_order_intake_service] = lambda: fake_service
     return TestClient(app)
@@ -166,3 +193,22 @@ def test_order_submission_rejects_pending_kyc_when_gate_enabled() -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Approved KYC is required before placing an order."
+
+
+def test_order_submission_rejects_sell_without_enough_position() -> None:
+    client = build_position_aware_client()
+
+    response = client.post(
+        "/api/v1/orders",
+        json={
+            "market_id": "market-123",
+            "side": "YES",
+            "direction": "SELL",
+            "price": "0.65",
+            "quantity": "10",
+        },
+        headers={"Idempotency-Key": "order-sell"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Insufficient YES shares available for this sell order."

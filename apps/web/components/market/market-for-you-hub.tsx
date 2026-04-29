@@ -138,6 +138,10 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
     () => (isHydrated ? feedInteractions : {}),
     [feedInteractions, isHydrated]
   );
+  const stableCommentThreadNotifications = useMemo(
+    () => (isHydrated ? commentThreadNotifications : []),
+    [commentThreadNotifications, isHydrated],
+  );
 
   const rankedMarkets = useMemo(
     () =>
@@ -190,12 +194,12 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
   );
   const threadNotifications = useMemo(
     () =>
-      commentThreadNotifications
+      stableCommentThreadNotifications
         .filter(
           (item) => !dismissedThreadKeys.includes(`${item.marketSlug}:${item.commentId}`),
         )
         .slice(0, 3),
-    [commentThreadNotifications, dismissedThreadKeys],
+    [dismissedThreadKeys, stableCommentThreadNotifications],
   );
   const dailyMissions = useMemo(
     () => [
@@ -264,7 +268,7 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
   useEffect(() => {
     setDismissedThreadKeys((current) =>
       current.filter((key) =>
-        commentThreadNotifications.some(
+        stableCommentThreadNotifications.some(
           (item) => `${item.marketSlug}:${item.commentId}` === key,
         ),
       ),
@@ -272,13 +276,13 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
     setModeratedThreadKeys((current) =>
       Object.fromEntries(
         Object.entries(current).filter(([key]) =>
-          commentThreadNotifications.some(
+          stableCommentThreadNotifications.some(
             (item) => `${item.marketSlug}:${item.commentId}` === key,
           ),
         ),
       ),
     );
-  }, [commentThreadNotifications]);
+  }, [stableCommentThreadNotifications]);
 
   function handleCatchUpThread(marketSlug: string, commentId: string, totalReplyCount: number) {
     const notificationKey = `${marketSlug}:${commentId}`;
@@ -478,10 +482,10 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
               onMouseEnter={() => recordFeedPause(market.slug)}
               onTouchStart={() => recordFeedImpression(market.slug)}
             >
-              {formatInteractionSummary(feedInteractions[market.slug]) ? (
+              {formatInteractionSummary(stableFeedInteractions[market.slug]) ? (
                 <div className="for-you-signal-badges">
                   <span className="for-you-signal-badge">
-                    {formatInteractionSummary(feedInteractions[market.slug])}
+                    {formatInteractionSummary(stableFeedInteractions[market.slug])}
                   </span>
                 </div>
               ) : null}
@@ -523,10 +527,10 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
               onMouseEnter={() => recordFeedPause(market.slug)}
               onTouchStart={() => recordFeedImpression(market.slug)}
             >
-              {formatInteractionSummary(feedInteractions[market.slug]) ? (
+              {formatInteractionSummary(stableFeedInteractions[market.slug]) ? (
                 <div className="for-you-signal-badges">
                   <span className="for-you-signal-badge">
-                    {formatInteractionSummary(feedInteractions[market.slug])}
+                    {formatInteractionSummary(stableFeedInteractions[market.slug])}
                   </span>
                 </div>
               ) : null}
@@ -726,10 +730,10 @@ export function MarketForYouHub({ markets }: MarketForYouHubProps) {
                 </div>
                 <input
                   type="checkbox"
-                  checked={notificationPreferences[key as keyof typeof notificationPreferences]}
+                  checked={stableNotificationPreferences[key as keyof typeof stableNotificationPreferences]}
                   onChange={(event) =>
                     updateNotificationPreference(
-                      key as keyof typeof notificationPreferences,
+                      key as keyof typeof stableNotificationPreferences,
                       event.target.checked,
                     )
                   }

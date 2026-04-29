@@ -256,3 +256,118 @@ async def test_apply_trade_executed_is_idempotent_for_same_sequence(
     assert first is True
     assert second is False
     assert len(trades) == 1
+
+
+@pytest.mark.asyncio
+async def test_apply_trade_executed_credits_position_backed_sell_without_reserved_cash(
+    async_session: AsyncSession,
+) -> None:
+    async_session.add_all(
+        [
+            Wallet(
+                user_id="buyer-2",
+                currency="KES",
+                available_balance=Decimal("95.00"),
+                reserved_balance=Decimal("5.00"),
+            ),
+            Wallet(
+                user_id="seller-2",
+                currency="KES",
+                available_balance=Decimal("94.00"),
+                reserved_balance=Decimal("0.00"),
+            ),
+            Market(
+                id="market-2",
+                slug="market-2",
+                sort_order=1,
+                category="Politics",
+                status="Open",
+                question="Will this test market resolve?",
+                short_label="Test market",
+                summary="Test market.",
+                region="Kenya",
+                yes_price=Decimal("0.5000"),
+                no_price=Decimal("0.5000"),
+                volume_kes=Decimal("0.00"),
+                liquidity_kes=Decimal("50.00"),
+                closes_at=datetime.now(UTC) + timedelta(days=1),
+                resolution_source="Test source",
+                rule_highlights=["Rule"],
+                trust_notes=["Trust"],
+                order_book={"yesBids": [], "noBids": []},
+                trades=[],
+            ),
+            Order(
+                id="buy-order-2",
+                user_id="buyer-2",
+                market_id="market-2",
+                side="YES",
+                direction="BUY",
+                price=Decimal("0.5000"),
+                quantity=Decimal("10.00"),
+                filled_quantity=Decimal("0.00"),
+                reserved_amount=Decimal("5.00"),
+                status="submitted",
+                idempotency_key="buy-2",
+            ),
+            Order(
+                id="sell-order-2",
+                user_id="seller-2",
+                market_id="market-2",
+                side="YES",
+                direction="SELL",
+                price=Decimal("0.5000"),
+                quantity=Decimal("10.00"),
+                filled_quantity=Decimal("0.00"),
+                reserved_amount=Decimal("0.00"),
+                status="submitted",
+                idempotency_key="sell-2",
+            ),
+            Position(
+                id="position-2",
+                user_id="seller-2",
+                market_id="market-2",
+                side="YES",
+                shares=Decimal("10.00"),
+                average_entry_price=Decimal("0.4000"),
+                realized_pnl=Decimal("0.00"),
+            ),
+        ]
+    )
+    await async_session.commit()
+
+    created = await apply_trade_executed(
+        async_session,
+        payload={
+            "trade_id": "trade-2",
+            "market_id": "market-2",
+            "buyer_id": "buyer-2",
+            "seller_id": "seller-2",
+            "side": "YES",
+            "price": "0.5000",
+            "quantity": "10.00",
+            "engine_sequence": 10,
+            "executed_at": "2026-03-29T09:00:00Z",
+        },
+    )
+
+    seller_wallet = await async_session.scalar(select(Wallet).where(Wallet.user_id == "seller-2"))
+    seller_order = await async_session.scalar(select(Order).where(Order.id == "sell-order-2"))
+    seller_position = await async_session.scalar(
+        select(Position).where(
+            Position.user_id == "seller-2",
+            Position.market_id == "market-2",
+            Position.side == "YES",
+        )
+    )
+
+    assert created is True
+    assert seller_wallet is not None
+    assert seller_wallet.available_balance == Decimal("99.00")
+    assert seller_wallet.reserved_balance == Decimal("0.00")
+    assert seller_order is not None
+    assert seller_order.status == "filled"
+    assert seller_order.reserved_amount == Decimal("0.00")
+    assert seller_position is not None
+    assert seller_position.shares == Decimal("0.00")
+    assert seller_position.realized_pnl == Decimal("1.00")

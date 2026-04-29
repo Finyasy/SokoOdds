@@ -10,6 +10,9 @@ type OrderTicketProps = {
   market: Market;
 };
 
+const QUICK_QUANTITY_OPTIONS = [4, 8, 12];
+const ACTIVE_ORDER_STATUSES = new Set(["submitted", "accepted", "partially_filled"]);
+
 export function OrderTicket({ market }: OrderTicketProps) {
   const {
     state,
@@ -27,12 +30,12 @@ export function OrderTicket({ market }: OrderTicketProps) {
   } = useOnboarding();
   const [orderState, setOrderState] = useState<"idle" | "submitting" | "submitted">("idle");
   const [walletState, setWalletState] = useState<"idle" | "funding" | "funded">("idle");
+  const [orderDirection, setOrderDirection] = useState<"BUY" | "SELL">("BUY");
+  const [contractSide, setContractSide] = useState<"YES" | "NO">("YES");
+  const [quantity, setQuantity] = useState(8);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const activePortfolioSnapshot = state.isSignedIn ? portfolioOrders : null;
-  const quantity = 8;
-  const estimatedStake = quantity * market.yesPrice;
-  const canTrade = state.isSignedIn && state.mpesaVerified && state.walletBalanceKes >= estimatedStake;
   const stableWatchlist = useMemo(() => (isHydrated ? watchlist : []), [isHydrated, watchlist]);
   const stableRecentMarketSlugs = useMemo(
     () => (isHydrated ? recentMarketSlugs : []),
@@ -45,7 +48,7 @@ export function OrderTicket({ market }: OrderTicketProps) {
         : {
             priceMoves: false,
             marketResolutions: true,
-            accountAlerts: true,
+            accountAlerts: true
           },
     [isHydrated, notificationPreferences]
   );
@@ -55,23 +58,88 @@ export function OrderTicket({ market }: OrderTicketProps) {
   );
   const isWatchlisted = stableWatchlist.includes(market.slug);
   const feedSignal = stableFeedInteractions[market.slug];
-  const livePosition = useMemo(
-    () => activePortfolioSnapshot?.positions?.find((position) => position.marketId === market.id) ?? null,
-    [activePortfolioSnapshot, market.id]
-  );
-  const liveExposure = useMemo(
+  const selectedPrice = contractSide === "YES" ? market.yesPrice : market.noPrice;
+  const estimatedValue = quantity * selectedPrice;
+  const marketExposure = useMemo(
     () => activePortfolioSnapshot?.markets?.find((item) => item.marketId === market.id) ?? null,
     [activePortfolioSnapshot, market.id]
   );
+  const selectedSidePosition = useMemo(
+    () =>
+      activePortfolioSnapshot?.positions?.find(
+        (position) => position.marketId === market.id && position.side === contractSide
+      ) ?? null,
+    [activePortfolioSnapshot, contractSide, market.id]
+  );
+  const openSellQuantity = useMemo(
+    () =>
+      (activePortfolioSnapshot?.items ?? [])
+        .filter(
+          (order) =>
+            order.marketId === market.id &&
+            order.side === contractSide &&
+            order.direction === "SELL" &&
+            ACTIVE_ORDER_STATUSES.has(order.status)
+        )
+        .reduce((sum, order) => sum + Number(order.quantity), 0),
+    [activePortfolioSnapshot, contractSide, market.id]
+  );
+  const availableSellShares = Math.max(
+    0,
+    Number(selectedSidePosition?.shares ?? "0") - openSellQuantity
+  );
+  const maxBuyQuantity =
+    state.isSignedIn && state.mpesaVerified
+      ? Math.floor(state.walletBalanceKes / Math.max(selectedPrice, 0.01))
+      : 0;
+  const maxSellQuantity = Math.floor(availableSellShares);
+
+  function resetSubmissionFeedback() {
+    setOrderState("idle");
+    setOrderError(null);
+    setLastOrderId(null);
+  }
+
+  useEffect(() => {
+    if (orderState === "submitted") {
+      return;
+    }
+
+    if (orderDirection === "SELL" && maxSellQuantity > 0 && quantity > maxSellQuantity) {
+      setQuantity(maxSellQuantity);
+      return;
+    }
+
+    if (
+      orderDirection === "BUY" &&
+      state.isSignedIn &&
+      state.mpesaVerified &&
+      maxBuyQuantity > 0 &&
+      quantity > maxBuyQuantity
+    ) {
+      setQuantity(maxBuyQuantity);
+    }
+  }, [
+    maxBuyQuantity,
+    maxSellQuantity,
+    orderDirection,
+    orderState,
+    quantity,
+    state.isSignedIn,
+    state.mpesaVerified
+  ]);
 
   const ticketContext = useMemo(() => {
     const items: string[] = [];
 
-    if (livePosition) {
-      items.push(`Holding ${livePosition.side} ${livePosition.shares} shares`);
+    if (selectedSidePosition) {
+      items.push(`Holding ${selectedSidePosition.side} ${selectedSidePosition.shares} shares`);
     }
-    if (liveExposure) {
-      items.push(`${liveExposure.activeOrderCount} live orders here`);
+    if (orderDirection === "SELL" && availableSellShares > 0) {
+      items.push(`${availableSellShares.toFixed(2)} ${contractSide} shares free to sell`);
+    }
+    if (marketExposure) {
+      items.push(`${marketExposure.activeOrderCount} live orders here`);
     }
     if (feedSignal?.openedCount) {
       items.push(`Opened ${feedSignal.openedCount}x from feed`);
@@ -91,41 +159,79 @@ export function OrderTicket({ market }: OrderTicketProps) {
 
     return items.slice(0, 4);
   }, [
+    availableSellShares,
+    contractSide,
     feedSignal,
     isWatchlisted,
-    liveExposure,
-    livePosition,
     market.slug,
+    marketExposure,
+    orderDirection,
+    selectedSidePosition,
     stableNotificationPreferences.priceMoves,
     stableRecentMarketSlugs
   ]);
-  const hasLivePosition = Boolean(livePosition);
-  const hasLiveExposure = Boolean(liveExposure);
-  const ticketIntentLabel = hasLivePosition
-    ? `Add to your ${livePosition?.side ?? "YES"} position`
-    : hasLiveExposure
-      ? "Layer into your live orders"
-      : "Start a position";
-  const summaryLabel = hasLivePosition
-    ? "Position after order"
-    : hasLiveExposure
-      ? "Reserved after order"
-      : "Starting exposure";
-  const summaryValue = hasLivePosition
-    ? `${livePosition?.side ?? "YES"} ${(Number(livePosition?.shares ?? "0") + quantity).toFixed(2)} shares`
-    : hasLiveExposure
-      ? formatKes(Number(liveExposure?.reservedAmountKes ?? "0") + estimatedStake)
-      : `${quantity} YES shares`;
-  const outcomeLabel = hasLivePosition
-    ? "Blended market value"
-    : hasLiveExposure
-      ? "Reserved after order"
-      : "Estimated payout";
-  const outcomeValue = hasLivePosition
-    ? formatKes(Number(livePosition?.marketValueKes ?? "0") + estimatedStake)
-    : hasLiveExposure
-      ? formatKes(Number(liveExposure?.reservedAmountKes ?? "0") + estimatedStake)
-      : formatKes(quantity);
+
+  const hasSelectedPosition = Boolean(selectedSidePosition && Number(selectedSidePosition.shares) > 0);
+  const canBuy =
+    state.isSignedIn && state.mpesaVerified && quantity > 0 && state.walletBalanceKes >= estimatedValue;
+  const canSell = state.isSignedIn && state.mpesaVerified && quantity > 0 && availableSellShares >= quantity;
+  const canSubmit = orderDirection === "BUY" ? canBuy : canSell;
+
+  const ticketIntentLabel =
+    orderDirection === "BUY"
+      ? hasSelectedPosition
+        ? `Add to your ${contractSide} position`
+        : marketExposure
+          ? `Layer into live ${contractSide} interest`
+          : `Start a ${contractSide} position`
+      : hasSelectedPosition
+        ? `Trim your ${contractSide} position`
+        : `Sell held ${contractSide} shares`;
+
+  const summaryLabel =
+    orderDirection === "BUY"
+      ? hasSelectedPosition
+        ? "Position after order"
+        : marketExposure
+          ? "Reserved after order"
+          : "Starting exposure"
+      : hasSelectedPosition
+        ? "Position after sale"
+        : "Position required";
+
+  const summaryValue =
+    orderDirection === "BUY"
+      ? hasSelectedPosition
+        ? `${contractSide} ${(
+            Number(selectedSidePosition?.shares ?? "0") + quantity
+          ).toFixed(2)} shares`
+        : marketExposure
+          ? formatKes(Number(marketExposure?.reservedAmountKes ?? "0") + estimatedValue)
+          : `${quantity} ${contractSide} shares`
+      : hasSelectedPosition
+        ? `${contractSide} ${Math.max(
+            0,
+            Number(selectedSidePosition?.shares ?? "0") - quantity
+          ).toFixed(2)} shares`
+        : `Need ${quantity} ${contractSide} shares`;
+
+  const costLabel = orderDirection === "BUY" ? "Cost" : "Proceeds at limit";
+  const outcomeLabel =
+    orderDirection === "BUY"
+      ? hasSelectedPosition
+        ? "Blended market value"
+        : marketExposure
+          ? "Reserved after order"
+          : "Estimated payout"
+      : "Shares to sell";
+  const outcomeValue =
+    orderDirection === "BUY"
+      ? hasSelectedPosition
+        ? formatKes(Number(selectedSidePosition?.marketValueKes ?? "0") + estimatedValue)
+        : marketExposure
+          ? formatKes(Number(marketExposure?.reservedAmountKes ?? "0") + estimatedValue)
+          : formatKes(quantity)
+      : `${quantity} ${contractSide} shares`;
 
   const actionLabel = isSyncingAccount
     ? "Checking wallet"
@@ -133,23 +239,25 @@ export function OrderTicket({ market }: OrderTicketProps) {
       ? "Create account to trade"
       : !state.mpesaVerified
         ? "Verify M-Pesa with KES 5"
-        : !canTrade
+        : orderDirection === "BUY" && !canBuy
           ? walletState === "funding"
             ? "Sending M-Pesa prompt..."
             : walletState === "funded"
               ? "Wallet topped up"
               : "Add KES 500 via M-Pesa"
-        : orderState === "submitted"
-          ? hasLivePosition || hasLiveExposure
-            ? "Position extended"
-            : "First trade submitted"
-        : orderState === "submitting"
-          ? "Submitting order..."
-          : hasLivePosition
-            ? `Add ${quantity} YES shares`
-            : hasLiveExposure
-              ? `Add ${quantity} YES shares`
-              : `Buy ${quantity} YES shares`;
+          : orderDirection === "SELL" && !canSell
+            ? hasSelectedPosition
+              ? `Sell up to ${maxSellQuantity || 0} ${contractSide}`
+              : `No ${contractSide} shares to sell`
+            : orderState === "submitted"
+              ? orderDirection === "BUY"
+                ? "Buy order submitted"
+                : "Sell order submitted"
+              : orderState === "submitting"
+                ? "Submitting order..."
+                : orderDirection === "BUY"
+                  ? `Buy ${quantity} ${contractSide} shares`
+                  : `Sell ${quantity} ${contractSide} shares`;
 
   const helperCopy = isSyncingAccount
     ? "We are loading the latest wallet state before the first trade action appears."
@@ -157,19 +265,27 @@ export function OrderTicket({ market }: OrderTicketProps) {
       ? "Sign in first so your alerts, wallet state, and market activity can stay tied to one account."
       : !state.mpesaVerified
         ? "First-time users verify one M-Pesa number with a KES 5 prompt. That amount is added back to the wallet."
-      : !canTrade
-          ? "Your verified wallet can trigger a small M-Pesa top-up here instead of stopping the trade flow."
-        : orderState === "submitted"
-          ? hasLivePosition
-            ? "Funds moved into this market again, increasing your live position while execution updates continue to settle in."
-            : hasLiveExposure
-              ? "This market now has more reserved order exposure. Matching and fill updates will keep rolling into the portfolio state."
-              : "Funds moved from available balance into reserved balance. The execution event will fan out as the engine comes online."
-          : hasLivePosition
-            ? `You already hold ${livePosition?.side ?? "YES"} here, so this order is framed as adding to an existing position.`
-            : hasLiveExposure
-              ? `You already have ${liveExposure?.activeOrderCount ?? 0} live orders here, so this order layers into that exposure instead of starting fresh.`
-              : "Your wallet is ready. This first order goes through the live API so you can review the real reserve-funds behavior.";
+        : orderDirection === "BUY"
+          ? !canBuy
+            ? "Your verified wallet can trigger a small M-Pesa top-up here instead of stopping the trade flow."
+            : orderState === "submitted"
+              ? hasSelectedPosition
+                ? "Funds moved into this market again, increasing your live position while execution updates continue to settle in."
+                : marketExposure
+                  ? "This market now has more reserved order exposure. Matching and fill updates will keep rolling into the portfolio state."
+                  : "Funds moved from available balance into reserved balance. The execution event will fan out as the engine comes online."
+              : hasSelectedPosition
+                ? `You already hold ${selectedSidePosition?.side ?? contractSide} here, so this order adds to an existing position.`
+                : marketExposure
+                  ? `You already have ${marketExposure?.activeOrderCount ?? 0} live orders here, so this order layers into that exposure instead of starting fresh.`
+                  : "Your wallet is ready. This first order goes through the live API so you can review the real reserve-funds behavior."
+          : !hasSelectedPosition
+            ? `You need held ${contractSide} shares before you can place a sell order in this market.`
+            : !canSell
+              ? `You currently have ${availableSellShares.toFixed(2)} ${contractSide} shares free to sell after accounting for other live sell orders.`
+              : orderState === "submitted"
+                ? `Your sell order is now live against held ${contractSide} shares. Matching and partial fills will update proceeds and remaining exposure in portfolio state.`
+                : `This sell order is backed by your held ${contractSide} shares, so it can route without asking for extra wallet cash first.`;
 
   async function handlePrimaryAction() {
     if (isSyncingAccount) {
@@ -186,7 +302,7 @@ export function OrderTicket({ market }: OrderTicketProps) {
       return;
     }
 
-    if (!canTrade) {
+    if (orderDirection === "BUY" && !canBuy) {
       setWalletState("funding");
 
       try {
@@ -198,15 +314,19 @@ export function OrderTicket({ market }: OrderTicketProps) {
       return;
     }
 
+    if (orderDirection === "SELL" && !canSell) {
+      return;
+    }
+
     setOrderError(null);
     setOrderState("submitting");
 
     try {
       const result = await submitOrder({
         market_id: market.id,
-        side: "YES",
-        direction: "BUY",
-        price: market.yesPrice.toFixed(2),
+        side: contractSide,
+        direction: orderDirection,
+        price: selectedPrice.toFixed(2),
         quantity: String(quantity)
       });
 
@@ -231,10 +351,26 @@ export function OrderTicket({ market }: OrderTicketProps) {
       </div>
 
       <div className="order-ticket__mode-row">
-        <button type="button" className="order-ticket__mode order-ticket__mode--active">
+        <button
+          type="button"
+          className={`order-ticket__mode${orderDirection === "BUY" ? " order-ticket__mode--active" : ""}`}
+          aria-pressed={orderDirection === "BUY"}
+          onClick={() => {
+            resetSubmissionFeedback();
+            setOrderDirection("BUY");
+          }}
+        >
           Buy
         </button>
-        <button type="button" className="order-ticket__mode">
+        <button
+          type="button"
+          className={`order-ticket__mode${orderDirection === "SELL" ? " order-ticket__mode--active" : ""}`}
+          aria-pressed={orderDirection === "SELL"}
+          onClick={() => {
+            resetSubmissionFeedback();
+            setOrderDirection("SELL");
+          }}
+        >
           Sell
         </button>
         <span className="order-ticket__mode-label">Market</span>
@@ -243,16 +379,28 @@ export function OrderTicket({ market }: OrderTicketProps) {
       <div className="order-ticket__choice" role="tablist" aria-label="Contract side">
         <button
           type="button"
-          className="order-ticket__choice-card order-ticket__choice-card--yes order-ticket__choice-card--active"
-          aria-pressed="true"
+          className={`order-ticket__choice-card order-ticket__choice-card--yes${
+            contractSide === "YES" ? " order-ticket__choice-card--active" : ""
+          }`}
+          aria-pressed={contractSide === "YES"}
+          onClick={() => {
+            resetSubmissionFeedback();
+            setContractSide("YES");
+          }}
         >
           <span>Yes</span>
           <strong>{Math.round(market.yesPrice * 100)}c</strong>
         </button>
         <button
           type="button"
-          className="order-ticket__choice-card order-ticket__choice-card--no"
-          aria-pressed="false"
+          className={`order-ticket__choice-card order-ticket__choice-card--no${
+            contractSide === "NO" ? " order-ticket__choice-card--active" : ""
+          }`}
+          aria-pressed={contractSide === "NO"}
+          onClick={() => {
+            resetSubmissionFeedback();
+            setContractSide("NO");
+          }}
         >
           <span>No</span>
           <strong>{Math.round(market.noPrice * 100)}c</strong>
@@ -260,8 +408,10 @@ export function OrderTicket({ market }: OrderTicketProps) {
       </div>
 
       <div className="order-ticket__amount-stage" aria-label="Order amount snapshot">
-        <span className="order-ticket__amount-label">Amount</span>
-        <strong>{formatKes(estimatedStake)}</strong>
+        <span className="order-ticket__amount-label">
+          {orderDirection === "BUY" ? "Amount" : "Order value"}
+        </span>
+        <strong>{formatKes(estimatedValue)}</strong>
       </div>
 
       {ticketContext.length ? (
@@ -277,17 +427,35 @@ export function OrderTicket({ market }: OrderTicketProps) {
         </div>
       ) : null}
 
-      <div className="order-ticket__quick-amounts" aria-label="Quick funding amounts">
-        <button type="button" className="order-ticket__quick-chip">
-          +Ksh 100
-        </button>
-        <button type="button" className="order-ticket__quick-chip">
-          +Ksh 250
-        </button>
-        <button type="button" className="order-ticket__quick-chip">
-          +Ksh 500
-        </button>
-        <button type="button" className="order-ticket__quick-chip">
+      <div className="order-ticket__quick-amounts" aria-label="Quick quantity choices">
+        {QUICK_QUANTITY_OPTIONS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className={`order-ticket__quick-chip${quantity === option ? " order-ticket__quick-chip--active" : ""}`}
+            onClick={() => {
+              resetSubmissionFeedback();
+              setQuantity(option);
+            }}
+          >
+            {option} sh
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`order-ticket__quick-chip${
+            quantity === (orderDirection === "BUY" ? maxBuyQuantity : maxSellQuantity)
+              ? " order-ticket__quick-chip--active"
+              : ""
+          }`}
+          onClick={() => {
+            const maxQuantity = orderDirection === "BUY" ? maxBuyQuantity : maxSellQuantity;
+            if (maxQuantity > 0) {
+              resetSubmissionFeedback();
+              setQuantity(maxQuantity);
+            }
+          }}
+        >
           Max
         </button>
       </div>
@@ -325,8 +493,17 @@ export function OrderTicket({ market }: OrderTicketProps) {
         <div className="wallet-callout wallet-callout--success" data-testid="order-ticket-success">
           <span className="wallet-callout__status wallet-callout__status--ready">Order submitted</span>
           <p>
-            Order <strong>{lastOrderId}</strong> is now holding {formatKes(estimatedStake)} in
-            reserved funds for this market.
+            {orderDirection === "BUY" ? (
+              <>
+                Order <strong>{lastOrderId}</strong> is now holding {formatKes(estimatedValue)} in
+                reserved funds for this market.
+              </>
+            ) : (
+              <>
+                Order <strong>{lastOrderId}</strong> is now resting {quantity} {contractSide} shares
+                on the market at {Math.round(selectedPrice * 100)}c.
+              </>
+            )}
           </p>
         </div>
       ) : null}
@@ -344,8 +521,8 @@ export function OrderTicket({ market }: OrderTicketProps) {
           <strong>{summaryValue}</strong>
         </div>
         <div>
-          <span>Cost</span>
-          <strong>{formatKes(estimatedStake)}</strong>
+          <span>{costLabel}</span>
+          <strong>{formatKes(estimatedValue)}</strong>
         </div>
         <div>
           <span>{outcomeLabel}</span>
@@ -354,20 +531,16 @@ export function OrderTicket({ market }: OrderTicketProps) {
       </div>
 
       <p className="panel-note order-ticket__note">
-        Submitting an order moves funds into reserved balance first. Fills can be partial during
-        active trading.
+        {orderDirection === "BUY"
+          ? "Submitting a buy order moves funds into reserved balance first. Fills can be partial during active trading."
+          : "Submitting a sell order parks held shares on the market first. Fills can be partial during active trading."}
       </p>
 
       <button
         type="button"
         className="primary-button primary-button--block"
         onClick={() => void handlePrimaryAction()}
-        disabled={
-          isSyncingAccount ||
-          orderState === "submitting" ||
-          orderState === "submitted" ||
-          walletState === "funding"
-        }
+        disabled={isSyncingAccount || orderState === "submitting" || walletState === "funding"}
       >
         {actionLabel}
       </button>
